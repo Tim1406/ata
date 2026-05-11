@@ -86,8 +86,10 @@ pub(crate) fn build_specs_with_discoverable_tools(
             })
             .collect::<Vec<_>>()
     });
-    let default_agent_type_description =
-        crate::agent::role::spawn_tool_spec::build(&std::collections::BTreeMap::new());
+    let default_agent_type_description = crate::agent::role::spawn_tool_spec::build(
+        &std::collections::BTreeMap::new(),
+        config.scheduling_enabled,
+    );
     let min_wait_timeout_ms = if config.multi_agent_v2 {
         config
             .wait_agent_min_timeout_ms

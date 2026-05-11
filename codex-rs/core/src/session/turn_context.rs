@@ -233,7 +233,9 @@ impl TurnContext {
         )
         .with_agent_type_description(crate::agent::role::spawn_tool_spec::build(
             &config.agent_roles,
-        ));
+            features.enabled(Feature::Scheduling),
+        ))
+        .with_tool_allowlist(config.agent_tool_allowlist.clone());
 
         Self {
             sub_id: self.sub_id.clone(),
@@ -519,7 +521,9 @@ impl Session {
         )
         .with_agent_type_description(crate::agent::role::spawn_tool_spec::build(
             &per_turn_config.agent_roles,
-        ));
+            per_turn_config.features.enabled(Feature::Scheduling),
+        ))
+        .with_tool_allowlist(per_turn_config.agent_tool_allowlist.clone());
 
         let per_turn_config = Arc::new(per_turn_config);
         let turn_metadata_state = Arc::new(TurnMetadataState::new(

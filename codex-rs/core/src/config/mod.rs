@@ -683,6 +683,13 @@ pub struct Config {
     /// User-defined role declarations keyed by role name.
     pub agent_roles: BTreeMap<String, AgentRoleConfig>,
 
+    /// Runtime-only allowlist applied after a role layer is merged. When `Some`,
+    /// the spawned agent's tool registry is filtered down to exactly these names.
+    /// Set by `apply_role_to_config` from the role's `tool_allowlist`, otherwise `None`.
+    /// Not persisted, not parsed from TOML — populated in-memory post-rebuild so the
+    /// config layer machinery cannot clobber it.
+    pub agent_tool_allowlist: Option<Vec<String>>,
+
     /// Memories subsystem settings.
     pub memories: MemoriesConfig,
 
@@ -1826,6 +1833,10 @@ pub struct AgentRoleConfig {
     pub config_file: Option<PathBuf>,
     /// Candidate nicknames for agents spawned with this role.
     pub nickname_candidates: Option<Vec<String>>,
+    /// When set, restricts the spawned agent's tool registry to exactly these tool names.
+    /// `None` means "inherit parent's tools" (the default for every existing role).
+    /// Built-in only for now; user-defined role TOMLs cannot set this field.
+    pub tool_allowlist: Option<Vec<String>>,
 }
 
 fn resolve_tool_suggest_config(
@@ -3295,6 +3306,7 @@ impl Config {
             agent_max_threads,
             agent_max_depth,
             agent_roles,
+            agent_tool_allowlist: None,
             memories: cfg.memories.unwrap_or_default().into(),
             agent_job_max_runtime_seconds,
             agent_interrupt_message_enabled,

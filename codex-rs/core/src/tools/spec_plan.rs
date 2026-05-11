@@ -553,6 +553,14 @@ pub fn build_tool_registry_builder(
         }
     }
 
+    // Phase 2e: enforce per-role tool allowlist for specialized sub-agents
+    // (cron_agent / monitor_agent / loop_agent). Applied at the end so every
+    // earlier registration path is filtered uniformly — there is no second
+    // registration step downstream that could leak unlisted tools in.
+    if let Some(allowed) = config.tool_allowlist.as_deref() {
+        builder.retain_allowlisted(allowed);
+    }
+
     builder
 }
 

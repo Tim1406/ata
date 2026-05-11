@@ -566,6 +566,18 @@ impl ToolRegistryBuilder {
         &self.specs
     }
 
+    /// Retains only specs and handlers whose tool name appears in `allowed`. Used
+    /// to enforce per-role tool restrictions for specialized sub-agents. Handler
+    /// matching uses `ToolName::display()` so namespaced entries (e.g. `"foo/bar"`)
+    /// can be allowlisted as a single string.
+    pub fn retain_allowlisted(&mut self, allowed: &[String]) {
+        let allowed_set: std::collections::HashSet<&str> =
+            allowed.iter().map(String::as_str).collect();
+        self.specs.retain(|cs| allowed_set.contains(cs.spec.name()));
+        self.handlers
+            .retain(|name, _| allowed_set.contains(name.display().as_str()));
+    }
+
     pub fn build(self) -> (Vec<ConfiguredToolSpec>, ToolRegistry) {
         let registry = ToolRegistry::new(self.handlers);
         (self.specs, registry)

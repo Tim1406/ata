@@ -113,6 +113,7 @@ async fn apply_role_returns_unavailable_for_missing_user_role_file() {
             description: None,
             config_file: Some(PathBuf::from("/path/does/not/exist.toml")),
             nickname_candidates: None,
+            tool_allowlist: None,
         },
     );
 
@@ -133,6 +134,7 @@ async fn apply_role_returns_unavailable_for_invalid_user_role_toml() {
             description: None,
             config_file: Some(role_path),
             nickname_candidates: None,
+            tool_allowlist: None,
         },
     );
 
@@ -164,6 +166,7 @@ model = "role-model"
             description: None,
             config_file: Some(role_path),
             nickname_candidates: None,
+            tool_allowlist: None,
         },
     );
 
@@ -195,6 +198,7 @@ async fn apply_role_preserves_unspecified_keys() {
             description: None,
             config_file: Some(role_path),
             nickname_candidates: None,
+            tool_allowlist: None,
         },
     );
 
@@ -254,6 +258,7 @@ model_provider = "test-provider"
             description: None,
             config_file: Some(role_path),
             nickname_candidates: None,
+            tool_allowlist: None,
         },
     );
 
@@ -308,6 +313,7 @@ model_verbosity = "high"
             description: None,
             config_file: Some(role_path),
             nickname_candidates: None,
+            tool_allowlist: None,
         },
     );
 
@@ -374,6 +380,7 @@ model_provider = "role-provider"
             description: None,
             config_file: Some(role_path),
             nickname_candidates: None,
+            tool_allowlist: None,
         },
     );
 
@@ -432,6 +439,7 @@ model_provider = "base-provider"
             description: None,
             config_file: Some(role_path),
             nickname_candidates: None,
+            tool_allowlist: None,
         },
     );
 
@@ -496,6 +504,7 @@ model_reasoning_effort = "high"
             description: None,
             config_file: Some(role_path),
             nickname_candidates: None,
+            tool_allowlist: None,
         },
     );
 
@@ -540,6 +549,7 @@ writable_roots = ["./sandbox-root"]
             description: None,
             config_file: Some(role_path),
             nickname_candidates: None,
+            tool_allowlist: None,
         },
     );
 
@@ -602,6 +612,7 @@ async fn apply_role_takes_precedence_over_existing_session_flags_for_same_key() 
             description: None,
             config_file: Some(role_path),
             nickname_candidates: None,
+            tool_allowlist: None,
         },
     );
 
@@ -645,6 +656,7 @@ enabled = false
             description: None,
             config_file: Some(role_path),
             nickname_candidates: None,
+            tool_allowlist: None,
         },
     );
 
@@ -683,12 +695,13 @@ fn spawn_tool_spec_build_deduplicates_user_defined_built_in_roles() {
                 description: Some("user override".to_string()),
                 config_file: None,
                 nickname_candidates: None,
+                tool_allowlist: None,
             },
         ),
         ("researcher".to_string(), AgentRoleConfig::default()),
     ]);
 
-    let spec = spawn_tool_spec::build(&user_defined_roles);
+    let spec = spawn_tool_spec::build(&user_defined_roles, false);
 
     assert!(spec.contains("researcher: no description"));
     assert!(spec.contains("explorer: {\nuser override\n}"));
@@ -704,10 +717,11 @@ fn spawn_tool_spec_lists_user_defined_roles_before_built_ins() {
             description: Some("first".to_string()),
             config_file: None,
             nickname_candidates: None,
+            tool_allowlist: None,
         },
     )]);
 
-    let spec = spawn_tool_spec::build(&user_defined_roles);
+    let spec = spawn_tool_spec::build(&user_defined_roles, false);
     let user_index = spec.find("aaa: {\nfirst\n}").expect("find user role");
     let built_in_index = spec
         .find("default: {\nDefault agent.\n}")
@@ -731,10 +745,11 @@ fn spawn_tool_spec_marks_role_locked_model_and_reasoning_effort() {
             description: Some("Research carefully.".to_string()),
             config_file: Some(role_path),
             nickname_candidates: None,
+            tool_allowlist: None,
         },
     )]);
 
-    let spec = spawn_tool_spec::build(&user_defined_roles);
+    let spec = spawn_tool_spec::build(&user_defined_roles, false);
 
     assert!(spec.contains(
             "Research carefully.\n- This role's model is set to `gpt-5` and its reasoning effort is set to `high`. These settings cannot be changed."
@@ -756,10 +771,11 @@ fn spawn_tool_spec_marks_role_locked_reasoning_effort_only() {
             description: Some("Review carefully.".to_string()),
             config_file: Some(role_path),
             nickname_candidates: None,
+            tool_allowlist: None,
         },
     )]);
 
-    let spec = spawn_tool_spec::build(&user_defined_roles);
+    let spec = spawn_tool_spec::build(&user_defined_roles, false);
 
     assert!(spec.contains(
             "Review carefully.\n- This role's reasoning effort is set to `medium` and cannot be changed."

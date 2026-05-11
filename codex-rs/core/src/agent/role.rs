@@ -61,7 +61,11 @@ async fn apply_role_to_config_inner(
     role: &AgentRoleConfig,
 ) -> anyhow::Result<()> {
     let is_built_in = !config.agent_roles.contains_key(role_name);
+    // Tool allowlist must be applied even when the role has no config_file,
+    // so capture it now and re-stamp it after any layer rebuild below.
+    let allowlist = role.tool_allowlist.clone();
     let Some(config_file) = role.config_file.as_ref() else {
+        config.agent_tool_allowlist = allowlist;
         return Ok(());
     };
     let role_layer_toml = load_role_layer_toml(config, config_file, is_built_in, role_name).await?;
@@ -69,6 +73,7 @@ async fn apply_role_to_config_inner(
         .as_table()
         .is_some_and(toml::map::Map::is_empty)
     {
+        config.agent_tool_allowlist = allowlist;
         return Ok(());
     }
     let (preserve_current_profile, preserve_current_provider) =
@@ -81,6 +86,10 @@ async fn apply_role_to_config_inner(
         preserve_current_provider,
     )
     .await?;
+    // Re-stamp after the layer rebuild — `build_next_config` constructs a fresh
+    // Config from the layer stack, which does not (and must not) know about the
+    // runtime-only allowlist field.
+    config.agent_tool_allowlist = allowlist;
     Ok(())
 }
 
@@ -275,16 +284,26 @@ mod reload {
 pub(crate) mod spawn_tool_spec {
     use super::*;
 
+    /// Built-in role names that should only be visible when the
+    /// `Feature::Scheduling` flag is on. Anchored here (not in `built_in`) so the
+    /// spawn-tool description and the role resolver share a single source of truth.
+    pub(crate) const SCHEDULING_ROLES: &[&str] = &["cron_agent", "monitor_agent", "loop_agent"];
+
     /// Builds the spawn-agent tool description text from built-in and configured roles.
-    pub(crate) fn build(user_defined_agent_roles: &BTreeMap<String, AgentRoleConfig>) -> String {
+    /// When `scheduling_enabled` is false, the three scheduling-agent roles are hidden.
+    pub(crate) fn build(
+        user_defined_agent_roles: &BTreeMap<String, AgentRoleConfig>,
+        scheduling_enabled: bool,
+    ) -> String {
         let built_in_roles = built_in::configs();
-        build_from_configs(built_in_roles, user_defined_agent_roles)
+        build_from_configs(built_in_roles, user_defined_agent_roles, scheduling_enabled)
     }
 
     // This function is not inlined for testing purpose.
     fn build_from_configs(
         built_in_roles: &BTreeMap<String, AgentRoleConfig>,
         user_defined_roles: &BTreeMap<String, AgentRoleConfig>,
+        scheduling_enabled: bool,
     ) -> String {
         let mut seen = BTreeSet::new();
         let mut formatted_roles = Vec::new();
@@ -294,6 +313,9 @@ pub(crate) mod spawn_tool_spec {
             }
         }
         for (name, declaration) in built_in_roles {
+            if !scheduling_enabled && SCHEDULING_ROLES.contains(&name.as_str()) {
+                continue;
+            }
             if seen.insert(name.as_str()) {
                 formatted_roles.push(format_role(name, declaration));
             }
@@ -362,6 +384,7 @@ mod built_in {
                         description: Some("Default agent.".to_string()),
                         config_file: None,
                         nickname_candidates: None,
+                        tool_allowlist: None,
                     }
                 ),
                 (
@@ -376,6 +399,7 @@ Rules:
 - Reuse existing explorers for related questions."#.to_string()),
                         config_file: Some("explorer.toml".to_string().parse().unwrap_or_default()),
                         nickname_candidates: None,
+                        tool_allowlist: None,
                     }
                 ),
                 (
@@ -391,6 +415,7 @@ Rules:
 - Always tell workers they are **not alone in the codebase**, and they should not revert the edits made by others, and they should adjust their implementation to accommodate the changes made by others. This is important because there may be multiple workers making changes in parallel, and they need to be aware of each other's work to avoid conflicts and ensure a cohesive final product."#.to_string()),
                         config_file: None,
                         nickname_candidates: None,
+                        tool_allowlist: None,
                     }
                 ),
                 (
@@ -401,6 +426,55 @@ Synthesizers inherit the parent model with low reasoning effort to download and 
 They write results to a staging file and return the path.".to_string()),
                         config_file: Some("synthesizer.toml".to_string().parse().unwrap_or_default()),
                         nickname_candidates: None,
+                        tool_allowlist: None,
+                    }
+                ),
+                (
+                    "cron_agent".to_string(),
+                    AgentRoleConfig {
+                        description: Some(r#"Use `cron_agent` to manage scheduled recurring prompts (cron jobs).
+This agent has access ONLY to `cron_create`, `cron_list`, `cron_delete`.
+Delegate when the user wants something to fire on a fixed schedule (e.g. "every 5 minutes", "at 9am daily", "every Monday morning").
+Do NOT use for streaming command output (use `monitor_agent`) or for "keep checking until done" (use `loop_agent`)."#.to_string()),
+                        config_file: Some("cron_agent.toml".to_string().parse().unwrap_or_default()),
+                        nickname_candidates: None,
+                        tool_allowlist: Some(vec![
+                            "cron_create".to_string(),
+                            "cron_list".to_string(),
+                            "cron_delete".to_string(),
+                        ]),
+                    }
+                ),
+                (
+                    "monitor_agent".to_string(),
+                    AgentRoleConfig {
+                        description: Some(r#"Use `monitor_agent` to watch a long-running shell command and stream its output back as it arrives.
+This agent has access ONLY to `monitor_start`, `monitor_list`, `monitor_stop`.
+Delegate when the user wants to tail logs, watch a build/test, or get notified as new lines appear.
+Do NOT use for fixed schedules (use `cron_agent`) or for repeated prompted iterations (use `loop_agent`)."#.to_string()),
+                        config_file: Some("monitor_agent.toml".to_string().parse().unwrap_or_default()),
+                        nickname_candidates: None,
+                        tool_allowlist: Some(vec![
+                            "monitor_start".to_string(),
+                            "monitor_list".to_string(),
+                            "monitor_stop".to_string(),
+                        ]),
+                    }
+                ),
+                (
+                    "loop_agent".to_string(),
+                    AgentRoleConfig {
+                        description: Some(r#"Use `loop_agent` to repeat a prompt on a fixed interval until explicitly stopped.
+This agent has access ONLY to `loop_start`, `loop_list`, `loop_stop`.
+Delegate when the user says "keep checking until X" or "stay on this until done" — a self-driving polling loop.
+Do NOT use for fixed wall-clock schedules (use `cron_agent`) or for streaming subprocess output (use `monitor_agent`)."#.to_string()),
+                        config_file: Some("loop_agent.toml".to_string().parse().unwrap_or_default()),
+                        nickname_candidates: None,
+                        tool_allowlist: Some(vec![
+                            "loop_start".to_string(),
+                            "loop_list".to_string(),
+                            "loop_stop".to_string(),
+                        ]),
                     }
                 ),
                 // Awaiter is temp removed
@@ -430,10 +504,16 @@ They write results to a staging file and return the path.".to_string()),
         const EXPLORER: &str = include_str!("builtins/explorer.toml");
         const AWAITER: &str = include_str!("builtins/awaiter.toml");
         const SYNTHESIZER: &str = include_str!("builtins/synthesizer.toml");
+        const CRON_AGENT: &str = include_str!("builtins/cron_agent.toml");
+        const MONITOR_AGENT: &str = include_str!("builtins/monitor_agent.toml");
+        const LOOP_AGENT: &str = include_str!("builtins/loop_agent.toml");
         match path.to_str()? {
             "explorer.toml" => Some(EXPLORER),
             "awaiter.toml" => Some(AWAITER),
             "synthesizer.toml" => Some(SYNTHESIZER),
+            "cron_agent.toml" => Some(CRON_AGENT),
+            "monitor_agent.toml" => Some(MONITOR_AGENT),
+            "loop_agent.toml" => Some(LOOP_AGENT),
             _ => None,
         }
     }

@@ -5,6 +5,9 @@ use crate::tools::handlers::CodeModeExecuteHandler;
 use crate::tools::handlers::CodeModeWaitHandler;
 use crate::tools::handlers::ContainerExecHandler;
 use crate::tools::handlers::CreateGoalHandler;
+use crate::tools::handlers::CronCreateHandler;
+use crate::tools::handlers::CronDeleteHandler;
+use crate::tools::handlers::CronListHandler;
 use crate::tools::handlers::CropFigureHandler;
 use crate::tools::handlers::DocumentReaderHandler;
 use crate::tools::handlers::DynamicToolHandler;
@@ -37,6 +40,9 @@ use crate::tools::handlers::document_reader::APPEND_TO_SECTION_TOOL;
 use crate::tools::handlers::document_reader::PATCH_DOCUMENT_SECTION_TOOL;
 use crate::tools::handlers::document_reader::PRESENT_DOCUMENT_TOOL;
 use crate::tools::handlers::document_reader::UPDATE_DOCUMENT_SECTION_TOOL;
+use crate::tools::handlers::cron_spec::create_cron_create_tool;
+use crate::tools::handlers::cron_spec::create_cron_delete_tool;
+use crate::tools::handlers::cron_spec::create_cron_list_tool;
 use crate::tools::handlers::js_repl::JsReplHandler;
 use crate::tools::handlers::js_repl_spec::create_js_repl_tool;
 use crate::tools::handlers::multi_agents::CloseAgentHandler;
@@ -211,6 +217,23 @@ pub fn build_tool_registry_builder(
         builder.register_handler(Arc::new(GetGoalHandler));
         builder.register_handler(Arc::new(CreateGoalHandler));
         builder.register_handler(Arc::new(UpdateGoalHandler));
+    }
+    if config.scheduling_enabled {
+        builder.push_spec(
+            create_cron_create_tool(),
+            /*supports_parallel_tool_calls*/ false,
+        );
+        builder.register_handler(Arc::new(CronCreateHandler));
+        builder.push_spec(
+            create_cron_list_tool(),
+            /*supports_parallel_tool_calls*/ false,
+        );
+        builder.register_handler(Arc::new(CronListHandler));
+        builder.push_spec(
+            create_cron_delete_tool(),
+            /*supports_parallel_tool_calls*/ false,
+        );
+        builder.register_handler(Arc::new(CronDeleteHandler));
     }
 
     // ATA-extra tools that always register on top of the upstream base

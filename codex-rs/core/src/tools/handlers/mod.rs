@@ -3,6 +3,8 @@ pub(crate) mod agent_jobs_spec;
 pub(crate) mod apply_patch;
 pub(crate) mod apply_patch_spec;
 pub(crate) mod attach_url_files;
+mod cron;
+pub(crate) mod cron_spec;
 pub(crate) mod crop_figure;
 #[cfg(feature = "data")]
 pub(crate) mod data;
@@ -60,6 +62,9 @@ pub use attach_url_files::AttachUrlFilesHandler;
 use codex_protocol::models::AdditionalPermissionProfile;
 use codex_protocol::protocol::AskForApproval;
 pub use crop_figure::CropFigureHandler;
+pub use cron::CronCreateHandler;
+pub use cron::CronDeleteHandler;
+pub use cron::CronListHandler;
 #[cfg(feature = "data")]
 pub(crate) use data::DataBridgeHandler;
 pub use document_reader::DocumentReaderHandler;

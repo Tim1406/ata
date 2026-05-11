@@ -40,6 +40,11 @@ pub(crate) struct Session {
     /// its full body.
     pub(crate) document_cache: crate::tools::handlers::document_reader::DocumentCache,
     pub(super) next_internal_sub_id: AtomicU64,
+    /// Session-scoped registry of active cron jobs. `None` when
+    /// `Feature::Scheduling` is disabled — tool handlers surface a clear
+    /// "feature not enabled" error in that case rather than silently
+    /// no-opping.
+    pub(crate) cron_registry: Option<Arc<codex_scheduling::CronRegistry>>,
 }
 
 #[derive(Clone)]
@@ -343,6 +348,11 @@ impl Session {
     /// Returns the concrete identity for this thread.
     pub(crate) fn thread_id(&self) -> ThreadId {
         self.conversation_id
+    }
+
+    /// Returns the cron registry when scheduling is enabled for this session.
+    pub(crate) fn cron_registry(&self) -> Option<&Arc<codex_scheduling::CronRegistry>> {
+        self.cron_registry.as_ref()
     }
 
     /// Returns the identity shared by the root thread and all descendant threads.
@@ -886,6 +896,14 @@ impl Session {
                 watch::channel(false);
 
             let (mailbox, mailbox_rx) = Mailbox::new();
+            let cron_registry = if config
+                .features
+                .enabled(codex_features::Feature::Scheduling)
+            {
+                Some(Arc::new(codex_scheduling::CronRegistry::new()))
+            } else {
+                None
+            };
             let sess = Arc::new(Session {
                 conversation_id: thread_id,
                 installation_id,
@@ -906,6 +924,7 @@ impl Session {
                 services,
                 document_cache: crate::tools::handlers::document_reader::DocumentCache::default(),
             next_internal_sub_id: AtomicU64::new(0),
+                cron_registry,
             });
             if let Some(network_policy_decider_session) = network_policy_decider_session {
                 let mut guard = network_policy_decider_session.write().await;

@@ -3962,6 +3962,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         services,
         document_cache: crate::tools::handlers::document_reader::DocumentCache::default(),
         next_internal_sub_id: AtomicU64::new(0),
+        cron_registry: None,
     };
 
     (session, turn_context)
@@ -5684,6 +5685,7 @@ where
         services,
         document_cache: crate::tools::handlers::document_reader::DocumentCache::default(),
         next_internal_sub_id: AtomicU64::new(0),
+        cron_registry: None,
     });
 
     (session, turn_context, rx_event)

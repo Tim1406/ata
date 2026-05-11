@@ -687,6 +687,47 @@ impl Codex {
                 .instrument(info_span!("session_loop", thread_id = %thread_id))
                 .await;
         });
+        // Spawn the cron firing engine when Feature::Scheduling is enabled
+        // for this session. It wakes every 60s, checks the per-session
+        // CronRegistry for due jobs, and enqueues each as a fresh Op::UserInput
+        // so the agent treats the fire as a normal user message turn.
+        if let Some(cron_registry) = session.cron_registry.clone() {
+            let tx_sub_for_cron = tx_sub.clone();
+            let session_weak = Arc::downgrade(&session);
+            tokio::spawn(async move {
+                let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
+                // First tick fires immediately; skip it so we don't fire at
+                // session start before any job has been created.
+                tick.tick().await;
+                loop {
+                    tick.tick().await;
+                    if session_weak.upgrade().is_none() {
+                        break;
+                    }
+                    let due = cron_registry.take_due(chrono::Utc::now());
+                    for (_id, prompt) in due {
+                        let op = Op::UserInput {
+                            items: vec![UserInput::Text {
+                                text: prompt,
+                                text_elements: Vec::new(),
+                            }],
+                            environments: None,
+                            final_output_json_schema: None,
+                            responsesapi_client_metadata: None,
+                        };
+                        let sub = Submission {
+                            id: format!("cron-{}", Uuid::now_v7()),
+                            op,
+                            trace: None,
+                        };
+                        if tx_sub_for_cron.send(sub).await.is_err() {
+                            // Submission channel closed — session is shutting down.
+                            return;
+                        }
+                    }
+                }
+            });
+        }
         let codex = Codex {
             tx_sub,
             rx_event,

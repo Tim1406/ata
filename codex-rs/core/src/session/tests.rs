@@ -3966,6 +3966,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         next_internal_sub_id: AtomicU64::new(0),
         cron_registry: None,
         monitor_runtime: None,
+        loop_runtime: None,
         submission_tx: async_channel::bounded(1).0,
     };
 
@@ -5695,6 +5696,7 @@ where
         next_internal_sub_id: AtomicU64::new(0),
         cron_registry: None,
         monitor_runtime: None,
+        loop_runtime: None,
         submission_tx: async_channel::bounded(1).0,
     });
 

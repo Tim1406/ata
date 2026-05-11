@@ -5,6 +5,7 @@
 //! All call sites are gated by `codex_features::Feature::Scheduling`.
 
 pub mod cron_job;
+pub mod loop_registry;
 pub mod loop_task;
 pub mod monitor;
 pub mod monitor_registry;
@@ -12,6 +13,7 @@ pub mod registry;
 pub mod task;
 
 pub use cron_job::{CronError, CronJob};
+pub use loop_registry::LoopRegistry;
 pub use loop_task::LoopTask;
 pub use monitor::MonitorTask;
 pub use monitor_registry::MonitorRegistry;

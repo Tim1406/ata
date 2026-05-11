@@ -48,6 +48,9 @@ pub(crate) struct Session {
     /// Session-scoped Monitor runtime (registry + per-monitor abort handles).
     /// `None` when `Feature::Scheduling` is disabled.
     pub(crate) monitor_runtime: Option<Arc<crate::scheduling_runtime::MonitorRuntime>>,
+    /// Session-scoped Loop runtime (registry + per-loop abort handles).
+    /// `None` when `Feature::Scheduling` is disabled.
+    pub(crate) loop_runtime: Option<Arc<crate::scheduling_runtime::LoopRuntime>>,
     /// Submission sender, cloned into the session so handlers running on the
     /// session's tokio runtime can inject `Op::UserInput` back into the
     /// running session (e.g., to surface a Monitor's stdout line as a turn).
@@ -367,6 +370,11 @@ impl Session {
         &self,
     ) -> Option<&Arc<crate::scheduling_runtime::MonitorRuntime>> {
         self.monitor_runtime.as_ref()
+    }
+
+    /// Returns the Loop runtime when scheduling is enabled.
+    pub(crate) fn loop_runtime(&self) -> Option<&Arc<crate::scheduling_runtime::LoopRuntime>> {
+        self.loop_runtime.as_ref()
     }
 
     /// Clone of the session submission sender, for handlers that need to
@@ -931,6 +939,11 @@ impl Session {
             } else {
                 None
             };
+            let loop_runtime = if scheduling_on {
+                Some(Arc::new(crate::scheduling_runtime::LoopRuntime::new()))
+            } else {
+                None
+            };
             let sess = Arc::new(Session {
                 conversation_id: thread_id,
                 installation_id,
@@ -953,6 +966,7 @@ impl Session {
             next_internal_sub_id: AtomicU64::new(0),
                 cron_registry,
                 monitor_runtime,
+                loop_runtime,
                 submission_tx,
             });
             if let Some(network_policy_decider_session) = network_policy_decider_session {

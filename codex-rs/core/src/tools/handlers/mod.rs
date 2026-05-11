@@ -6,6 +6,8 @@ pub(crate) mod attach_url_files;
 mod cron;
 pub(crate) mod cron_spec;
 pub(crate) mod crop_figure;
+mod loop_tool;
+pub(crate) mod loop_tool_spec;
 mod monitor;
 pub(crate) mod monitor_spec;
 #[cfg(feature = "data")]
@@ -67,6 +69,9 @@ pub use crop_figure::CropFigureHandler;
 pub use cron::CronCreateHandler;
 pub use cron::CronDeleteHandler;
 pub use cron::CronListHandler;
+pub use loop_tool::LoopListHandler;
+pub use loop_tool::LoopStartHandler;
+pub use loop_tool::LoopStopHandler;
 pub use monitor::MonitorListHandler;
 pub use monitor::MonitorStartHandler;
 pub use monitor::MonitorStopHandler;

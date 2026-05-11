@@ -8,6 +8,9 @@ use crate::tools::handlers::CreateGoalHandler;
 use crate::tools::handlers::CronCreateHandler;
 use crate::tools::handlers::CronDeleteHandler;
 use crate::tools::handlers::CronListHandler;
+use crate::tools::handlers::LoopListHandler;
+use crate::tools::handlers::LoopStartHandler;
+use crate::tools::handlers::LoopStopHandler;
 use crate::tools::handlers::MonitorListHandler;
 use crate::tools::handlers::MonitorStartHandler;
 use crate::tools::handlers::MonitorStopHandler;
@@ -46,6 +49,9 @@ use crate::tools::handlers::document_reader::UPDATE_DOCUMENT_SECTION_TOOL;
 use crate::tools::handlers::cron_spec::create_cron_create_tool;
 use crate::tools::handlers::cron_spec::create_cron_delete_tool;
 use crate::tools::handlers::cron_spec::create_cron_list_tool;
+use crate::tools::handlers::loop_tool_spec::create_loop_list_tool;
+use crate::tools::handlers::loop_tool_spec::create_loop_start_tool;
+use crate::tools::handlers::loop_tool_spec::create_loop_stop_tool;
 use crate::tools::handlers::monitor_spec::create_monitor_list_tool;
 use crate::tools::handlers::monitor_spec::create_monitor_start_tool;
 use crate::tools::handlers::monitor_spec::create_monitor_stop_tool;
@@ -255,6 +261,21 @@ pub fn build_tool_registry_builder(
             /*supports_parallel_tool_calls*/ false,
         );
         builder.register_handler(Arc::new(MonitorStopHandler));
+        builder.push_spec(
+            create_loop_start_tool(),
+            /*supports_parallel_tool_calls*/ false,
+        );
+        builder.register_handler(Arc::new(LoopStartHandler));
+        builder.push_spec(
+            create_loop_list_tool(),
+            /*supports_parallel_tool_calls*/ false,
+        );
+        builder.register_handler(Arc::new(LoopListHandler));
+        builder.push_spec(
+            create_loop_stop_tool(),
+            /*supports_parallel_tool_calls*/ false,
+        );
+        builder.register_handler(Arc::new(LoopStopHandler));
     }
 
     // ATA-extra tools that always register on top of the upstream base

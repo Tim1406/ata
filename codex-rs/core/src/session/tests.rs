@@ -3738,6 +3738,7 @@ async fn session_new_fails_when_zsh_fork_enabled_without_zsh_path() {
         )),
         codex_rollout_trace::ThreadTraceContext::disabled(),
         tx_sub,
+        None,
     )
     .await;
 
@@ -3969,6 +3970,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         monitor_runtime: None,
         loop_runtime: None,
         submission_tx: async_channel::bounded(1).0,
+        scheduling_is_root: true,
     };
 
     (session, turn_context)
@@ -4087,6 +4089,7 @@ async fn make_session_with_config_and_rx(
         )),
         codex_rollout_trace::ThreadTraceContext::disabled(),
         tx_sub,
+        None,
     )
     .await?;
 
@@ -4198,6 +4201,7 @@ async fn make_session_with_history_source_and_agent_control_and_rx(
         )),
         codex_rollout_trace::ThreadTraceContext::disabled(),
         tx_sub,
+        None,
     )
     .await?;
 
@@ -5699,6 +5703,7 @@ where
         monitor_runtime: None,
         loop_runtime: None,
         submission_tx: async_channel::bounded(1).0,
+        scheduling_is_root: true,
     });
 
     (session, turn_context, rx_event)

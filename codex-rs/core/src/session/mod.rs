@@ -428,6 +428,11 @@ pub(crate) struct CodexSpawnArgs {
     pub(crate) environment_selections: ResolvedTurnEnvironments,
     pub(crate) analytics_events_client: Option<AnalyticsEventsClient>,
     pub(crate) thread_store: Arc<dyn ThreadStore>,
+    /// If Some, this session is a sub-agent spawn and inherits its parent's
+    /// scheduling registries + root submission tx (Option A). If None, this is
+    /// a root session and constructs its own registries + starts the cron
+    /// firing engine.
+    pub(crate) parent_scheduling: Option<crate::session::session::ParentSchedulingHandle>,
 }
 
 pub(crate) const INITIAL_SUBMIT_ID: &str = "";
@@ -487,6 +492,7 @@ impl Codex {
             environment_selections,
             analytics_events_client,
             thread_store,
+            parent_scheduling,
         } = args;
         let (tx_sub, rx_sub) = async_channel::bounded(SUBMISSION_CHANNEL_CAPACITY);
         let (tx_event, rx_event) = async_channel::unbounded();
@@ -673,6 +679,7 @@ impl Codex {
             thread_store,
             parent_rollout_thread_trace,
             tx_sub.clone(),
+            parent_scheduling,
         )
         .await
         .map_err(|e| {
@@ -688,12 +695,19 @@ impl Codex {
                 .instrument(info_span!("session_loop", thread_id = %thread_id))
                 .await;
         });
-        // Spawn the cron firing engine when Feature::Scheduling is enabled
-        // for this session. It wakes every 60s, checks the per-session
-        // CronRegistry for due jobs, and enqueues each as a fresh Op::UserInput
-        // so the agent treats the fire as a normal user message turn.
-        if let Some(cron_registry) = session.cron_registry.clone() {
-            let tx_sub_for_cron = tx_sub.clone();
+        // Spawn the cron firing engine ONLY for sessions that own their
+        // scheduling registries (i.e., root sessions). Sub-agents inherit the
+        // root's registry and submission tx (Option A), so starting a second
+        // engine on a sub-agent session would double-fire every job — and the
+        // sub-agent's engine would die with the sub-agent anyway, taking the
+        // jobs with it. Root-only firing keeps cron durable across the spawn
+        // tree.
+        if session.scheduling_is_root
+            && let Some(cron_registry) = session.cron_registry.clone()
+        {
+            // Use the session's own submission tx here (which equals tx_sub for
+            // root); ensures the cron tick goes into the root session's queue.
+            let tx_sub_for_cron = session.submission_tx.clone();
             let session_weak = Arc::downgrade(&session);
             tokio::spawn(async move {
                 let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));

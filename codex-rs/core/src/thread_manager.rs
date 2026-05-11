@@ -1176,6 +1176,24 @@ impl ThreadManagerState {
         let parent_rollout_thread_trace = self
             .parent_rollout_thread_trace_for_source(&session_source, &initial_history)
             .await;
+        // Option A (Phase 2f): when this spawn is a sub-agent of an existing
+        // thread, hand it the parent's scheduling registries + root submission
+        // tx so cron/monitor/loop state is shared across the whole spawn tree.
+        // The lookup is best-effort — if the parent thread isn't (or no longer)
+        // present, fall back to the root-style fresh registries (None).
+        let parent_scheduling = if let SessionSource::SubAgent(
+            SubAgentSource::ThreadSpawn {
+                parent_thread_id, ..
+            },
+        ) = &session_source
+        {
+            self.get_thread(*parent_thread_id)
+                .await
+                .ok()
+                .map(|parent_thread| parent_thread.codex.session.scheduling_handle())
+        } else {
+            None
+        };
         let tracked_session_source = session_source.clone();
         let CodexSpawnOk {
             codex, thread_id, ..
@@ -1204,6 +1222,7 @@ impl ThreadManagerState {
             environment_selections,
             analytics_events_client: self.analytics_events_client.clone(),
             thread_store: Arc::clone(&self.thread_store),
+            parent_scheduling,
         })
         .await?;
         let new_thread = self

@@ -54,6 +54,29 @@ pub(crate) struct Session {
     /// Submission sender, cloned into the session so handlers running on the
     /// session's tokio runtime can inject `Op::UserInput` back into the
     /// running session (e.g., to surface a Monitor's stdout line as a turn).
+    ///
+    /// For root sessions this is *this* session's own submission tx. For
+    /// sub-agent sessions whose scheduling registries are inherited from a
+    /// parent (Option A: shared root registries), this is the **root** session's
+    /// submission tx so cron/monitor/loop fires reach the user-facing session
+    /// after the sub-agent terminates.
+    pub(crate) submission_tx: Sender<Submission>,
+    /// True only on the session that *owns* its scheduling registries — i.e.,
+    /// constructed without a `ParentSchedulingHandle`. The cron firing engine
+    /// in `Codex::spawn` runs only when this is set, so a sub-agent that
+    /// inherits the parent's registry does not start a duplicate firing loop.
+    pub(crate) scheduling_is_root: bool,
+}
+
+/// Handle exposed by a session for spawned sub-agents to inherit, so the whole
+/// spawn tree shares one set of scheduling registries. Cloning the handle clones
+/// the inner `Arc`s — no deep state copy. Built by `Session::scheduling_handle`
+/// (root or already-inheriting) and passed through `CodexSpawnArgs`.
+#[derive(Clone)]
+pub(crate) struct ParentSchedulingHandle {
+    pub(crate) cron_registry: Option<Arc<codex_scheduling::CronRegistry>>,
+    pub(crate) monitor_runtime: Option<Arc<crate::scheduling_runtime::MonitorRuntime>>,
+    pub(crate) loop_runtime: Option<Arc<crate::scheduling_runtime::LoopRuntime>>,
     pub(crate) submission_tx: Sender<Submission>,
 }
 
@@ -365,6 +388,20 @@ impl Session {
         self.cron_registry.as_ref()
     }
 
+    /// Snapshots the scheduling state this session is using (whether owned or
+    /// inherited) so a spawned sub-agent can keep using the same registries +
+    /// the same root submission channel. Returned by the parent at spawn time;
+    /// transparently chains for nested spawns (sub-agent of a sub-agent still
+    /// points at the root because the parent already inherited).
+    pub(crate) fn scheduling_handle(&self) -> ParentSchedulingHandle {
+        ParentSchedulingHandle {
+            cron_registry: self.cron_registry.clone(),
+            monitor_runtime: self.monitor_runtime.clone(),
+            loop_runtime: self.loop_runtime.clone(),
+            submission_tx: self.submission_tx.clone(),
+        }
+    }
+
     /// Returns the Monitor runtime when scheduling is enabled.
     pub(crate) fn monitor_runtime(
         &self,
@@ -416,6 +453,7 @@ impl Session {
         thread_store: Arc<dyn ThreadStore>,
         parent_rollout_thread_trace: ThreadTraceContext,
         submission_tx: Sender<Submission>,
+        parent_scheduling: Option<ParentSchedulingHandle>,
     ) -> anyhow::Result<Arc<Self>> {
         debug!(
             "Configuring session: model={}; provider={:?}",
@@ -929,21 +967,39 @@ impl Session {
             let scheduling_on = config
                 .features
                 .enabled(codex_features::Feature::Scheduling);
-            let cron_registry = if scheduling_on {
-                Some(Arc::new(codex_scheduling::CronRegistry::new()))
-            } else {
-                None
-            };
-            let monitor_runtime = if scheduling_on {
-                Some(Arc::new(crate::scheduling_runtime::MonitorRuntime::new()))
-            } else {
-                None
-            };
-            let loop_runtime = if scheduling_on {
-                Some(Arc::new(crate::scheduling_runtime::LoopRuntime::new()))
-            } else {
-                None
-            };
+            // Option A: when this session is a spawned sub-agent of a parent
+            // that already has scheduling state, inherit the parent's
+            // registries + root submission tx. Jobs and monitors registered by
+            // this sub-agent then outlive the sub-agent and fire into the
+            // root user-facing session. Root sessions (no handle) create fresh.
+            let (cron_registry, monitor_runtime, loop_runtime, effective_submission_tx, is_root) =
+                match parent_scheduling {
+                    Some(handle) => (
+                        handle.cron_registry,
+                        handle.monitor_runtime,
+                        handle.loop_runtime,
+                        handle.submission_tx,
+                        false,
+                    ),
+                    None => {
+                        let cron = if scheduling_on {
+                            Some(Arc::new(codex_scheduling::CronRegistry::new()))
+                        } else {
+                            None
+                        };
+                        let mon = if scheduling_on {
+                            Some(Arc::new(crate::scheduling_runtime::MonitorRuntime::new()))
+                        } else {
+                            None
+                        };
+                        let lp = if scheduling_on {
+                            Some(Arc::new(crate::scheduling_runtime::LoopRuntime::new()))
+                        } else {
+                            None
+                        };
+                        (cron, mon, lp, submission_tx, true)
+                    }
+                };
             let sess = Arc::new(Session {
                 conversation_id: thread_id,
                 installation_id,
@@ -967,7 +1023,8 @@ impl Session {
                 cron_registry,
                 monitor_runtime,
                 loop_runtime,
-                submission_tx,
+                submission_tx: effective_submission_tx,
+                scheduling_is_root: is_root,
             });
             if let Some(network_policy_decider_session) = network_policy_decider_session {
                 let mut guard = network_policy_decider_session.write().await;

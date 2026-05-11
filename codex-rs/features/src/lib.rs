@@ -256,6 +256,10 @@ pub enum Feature {
     ResearchRepoAnalysis,
     /// ATA-private: knowledge-base persistence (cards, journal, cross-paper reports).
     ResearchKnowledgeBase,
+    /// ATA-private: Claude Code-style scheduling primitives (Cron / Monitor / Loop)
+    /// running in-session. Phase 0 flag — wired up but does not gate any
+    /// behavior yet.
+    Scheduling,
 }
 
 impl Feature {
@@ -1257,6 +1261,16 @@ pub const FEATURES: &[FeatureSpec] = &[
         key: "research_knowledge_base",
         stage: Stage::Stable,
         default_enabled: true,
+    },
+    FeatureSpec {
+        id: Feature::Scheduling,
+        key: "scheduling",
+        stage: Stage::Experimental {
+            name: "Scheduling",
+            menu_description: "Schedule prompts (Cron), monitor background output, and run loops — in-session.",
+            announcement: "",
+        },
+        default_enabled: false,
     },
 ];
 

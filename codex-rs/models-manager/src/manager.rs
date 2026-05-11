@@ -142,10 +142,24 @@ pub trait ModelsManager: fmt::Debug + Send + Sync {
         refresh_strategy: RefreshStrategy,
     ) -> String {
         async move {
+            // When the active auth backend routes through the Codex backend
+            // (ChatGPT account / ChatGPT auth tokens / agent identity), gpt-4o
+            // is server-side rejected with "model not supported when using
+            // Codex with a ChatGPT account". Honor user-supplied `model` only
+            // when it is compatible — otherwise override silently so the
+            // session starts in a working state instead of failing on the
+            // first turn. This matches the existing silent-drop of
+            // `model_provider = "copilot"` when the active auth is ChatGPT.
+            let chatgpt_backed = self
+                .auth_manager()
+                .is_some_and(AuthManager::current_auth_uses_codex_backend);
             if let Some(model) = model.as_ref() {
-                return model.to_string();
+                if !(chatgpt_backed && is_blocked_for_chatgpt(model.as_str())) {
+                    return model.to_string();
+                }
             }
-            default_model_from_available(self.list_models(refresh_strategy).await)
+            let available = self.list_models(refresh_strategy).await;
+            default_model_from_available_with_auth(available, chatgpt_backed)
         }
         .instrument(tracing::info_span!(
             "get_default_model",
@@ -398,6 +412,39 @@ fn default_model_from_available(available: Vec<ModelPreset>) -> String {
         .or_else(|| available.first())
         .map(|model| model.model.clone())
         .unwrap_or_default()
+}
+
+/// Models that the Codex backend rejects when the active auth is a ChatGPT
+/// account. Hard-coded for now since the bundled model metadata does not yet
+/// carry a per-auth compatibility flag. Keep this list minimal — the
+/// server-side rejection is still authoritative; this just stops the
+/// default-picker (and any stale config override) from choosing a model that
+/// would fail on the first turn.
+fn is_blocked_for_chatgpt(model: &str) -> bool {
+    matches!(model, "gpt-4o" | "gpt-4o-mini")
+}
+
+/// Auth-aware default picker. When `chatgpt_backed` is true, models known to
+/// be rejected by the Codex backend for ChatGPT-account auth are skipped when
+/// choosing the default. The user can still pick them manually via `/model`.
+fn default_model_from_available_with_auth(
+    available: Vec<ModelPreset>,
+    chatgpt_backed: bool,
+) -> String {
+    if chatgpt_backed {
+        if let Some(preset) = available.iter().find(|m| {
+            m.is_default && !is_blocked_for_chatgpt(m.model.as_str())
+        }) {
+            return preset.model.clone();
+        }
+        if let Some(preset) = available
+            .iter()
+            .find(|m| !is_blocked_for_chatgpt(m.model.as_str()))
+        {
+            return preset.model.clone();
+        }
+    }
+    default_model_from_available(available)
 }
 
 fn find_model_by_longest_prefix(model: &str, candidates: &[ModelInfo]) -> Option<ModelInfo> {

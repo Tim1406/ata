@@ -79,6 +79,38 @@ async fn apply_role_to_config_inner(
     let (preserve_current_profile, preserve_current_provider) =
         preservation_policy(config, &role_layer_toml);
 
+    // Capture imperatively-set model fields before the layer rebuild. The caller
+    // (spawn_agent) may have set `config.model` / `config.model_reasoning_effort`
+    // directly to honor a `model=` / `reasoning_effort=` spawn argument; those
+    // mutations are NOT reflected in the layer stack and would otherwise be
+    // discarded when `build_next_config` reconstructs the Config from layers.
+    // Only re-stamp fields the role TOML does not explicitly set — either at the
+    // top level or inside the active profile (mirroring `preservation_policy`
+    // for model_provider). The role's explicit pin always wins.
+    let role_pins_field = |field: &str| -> bool {
+        if role_layer_toml.get(field).is_some() {
+            return true;
+        }
+        config
+            .active_profile
+            .as_ref()
+            .and_then(|active| {
+                role_layer_toml
+                    .get("profiles")
+                    .and_then(TomlValue::as_table)
+                    .and_then(|profiles| profiles.get(active))
+                    .and_then(TomlValue::as_table)
+                    .map(|profile| profile.contains_key(field))
+            })
+            .unwrap_or(false)
+    };
+    let preserved_model = (!role_pins_field("model"))
+        .then(|| config.model.clone())
+        .flatten();
+    let preserved_reasoning_effort = (!role_pins_field("model_reasoning_effort"))
+        .then(|| config.model_reasoning_effort)
+        .flatten();
+
     *config = reload::build_next_config(
         config,
         role_layer_toml,
@@ -88,8 +120,15 @@ async fn apply_role_to_config_inner(
     .await?;
     // Re-stamp after the layer rebuild — `build_next_config` constructs a fresh
     // Config from the layer stack, which does not (and must not) know about the
-    // runtime-only allowlist field.
+    // runtime-only allowlist field, and which also drops imperative model
+    // overrides applied by the spawn handler before this function ran.
     config.agent_tool_allowlist = allowlist;
+    if let Some(model) = preserved_model {
+        config.model = Some(model);
+    }
+    if let Some(effort) = preserved_reasoning_effort {
+        config.model_reasoning_effort = Some(effort);
+    }
     Ok(())
 }
 

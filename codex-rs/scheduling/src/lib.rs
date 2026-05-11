@@ -7,11 +7,13 @@
 pub mod cron_job;
 pub mod loop_task;
 pub mod monitor;
+pub mod monitor_registry;
 pub mod registry;
 pub mod task;
 
 pub use cron_job::{CronError, CronJob};
 pub use loop_task::LoopTask;
 pub use monitor::MonitorTask;
+pub use monitor_registry::MonitorRegistry;
 pub use registry::CronRegistry;
 pub use task::{TaskId, TaskKind, TaskStatus};

@@ -672,6 +672,7 @@ impl Codex {
             analytics_events_client,
             thread_store,
             parent_rollout_thread_trace,
+            tx_sub.clone(),
         )
         .await
         .map_err(|e| {

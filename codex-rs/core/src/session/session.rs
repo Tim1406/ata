@@ -45,6 +45,13 @@ pub(crate) struct Session {
     /// "feature not enabled" error in that case rather than silently
     /// no-opping.
     pub(crate) cron_registry: Option<Arc<codex_scheduling::CronRegistry>>,
+    /// Session-scoped Monitor runtime (registry + per-monitor abort handles).
+    /// `None` when `Feature::Scheduling` is disabled.
+    pub(crate) monitor_runtime: Option<Arc<crate::scheduling_runtime::MonitorRuntime>>,
+    /// Submission sender, cloned into the session so handlers running on the
+    /// session's tokio runtime can inject `Op::UserInput` back into the
+    /// running session (e.g., to surface a Monitor's stdout line as a turn).
+    pub(crate) submission_tx: Sender<Submission>,
 }
 
 #[derive(Clone)]
@@ -355,6 +362,20 @@ impl Session {
         self.cron_registry.as_ref()
     }
 
+    /// Returns the Monitor runtime when scheduling is enabled.
+    pub(crate) fn monitor_runtime(
+        &self,
+    ) -> Option<&Arc<crate::scheduling_runtime::MonitorRuntime>> {
+        self.monitor_runtime.as_ref()
+    }
+
+    /// Clone of the session submission sender, for handlers that need to
+    /// inject `Op::UserInput` back into the running session (e.g., the
+    /// Monitor streaming task).
+    pub(crate) fn submission_tx(&self) -> Sender<Submission> {
+        self.submission_tx.clone()
+    }
+
     /// Returns the identity shared by the root thread and all descendant threads.
     pub(crate) fn session_id(&self) -> SessionId {
         self.services.agent_control.session_id()
@@ -386,6 +407,7 @@ impl Session {
         analytics_events_client: Option<AnalyticsEventsClient>,
         thread_store: Arc<dyn ThreadStore>,
         parent_rollout_thread_trace: ThreadTraceContext,
+        submission_tx: Sender<Submission>,
     ) -> anyhow::Result<Arc<Self>> {
         debug!(
             "Configuring session: model={}; provider={:?}",
@@ -896,11 +918,16 @@ impl Session {
                 watch::channel(false);
 
             let (mailbox, mailbox_rx) = Mailbox::new();
-            let cron_registry = if config
+            let scheduling_on = config
                 .features
-                .enabled(codex_features::Feature::Scheduling)
-            {
+                .enabled(codex_features::Feature::Scheduling);
+            let cron_registry = if scheduling_on {
                 Some(Arc::new(codex_scheduling::CronRegistry::new()))
+            } else {
+                None
+            };
+            let monitor_runtime = if scheduling_on {
+                Some(Arc::new(crate::scheduling_runtime::MonitorRuntime::new()))
             } else {
                 None
             };
@@ -925,6 +952,8 @@ impl Session {
                 document_cache: crate::tools::handlers::document_reader::DocumentCache::default(),
             next_internal_sub_id: AtomicU64::new(0),
                 cron_registry,
+                monitor_runtime,
+                submission_tx,
             });
             if let Some(network_policy_decider_session) = network_policy_decider_session {
                 let mut guard = network_policy_decider_session.write().await;

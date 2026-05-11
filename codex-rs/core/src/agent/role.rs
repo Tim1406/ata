@@ -471,9 +471,11 @@ They write results to a staging file and return the path.".to_string()),
                 (
                     "cron_agent".to_string(),
                     AgentRoleConfig {
-                        description: Some(r#"Use `cron_agent` to manage scheduled recurring prompts (cron jobs).
+                        description: Some(r#"`cron_agent` owns all cron-job work in this session.
+You MUST spawn `cron_agent` for any request that involves creating, listing, or deleting recurring scheduled prompts — even one-off requests like "schedule X every minute" or "delete the ping cron".
+You MUST NOT call `cron_create`, `cron_list`, or `cron_delete` yourself; delegate to `cron_agent` and let it pick the right tool.
 This agent has access ONLY to `cron_create`, `cron_list`, `cron_delete`.
-Delegate when the user wants something to fire on a fixed schedule (e.g. "every 5 minutes", "at 9am daily", "every Monday morning").
+Trigger phrases that route here: "every X seconds/minutes/hours", "at Hh:Mm", "daily/weekly/Monday morning", "stop the cron / list crons / delete the ... cron".
 Do NOT use for streaming command output (use `monitor_agent`) or for "keep checking until done" (use `loop_agent`)."#.to_string()),
                         config_file: Some("cron_agent.toml".to_string().parse().unwrap_or_default()),
                         nickname_candidates: None,
@@ -487,9 +489,11 @@ Do NOT use for streaming command output (use `monitor_agent`) or for "keep check
                 (
                     "monitor_agent".to_string(),
                     AgentRoleConfig {
-                        description: Some(r#"Use `monitor_agent` to watch a long-running shell command and stream its output back as it arrives.
+                        description: Some(r#"`monitor_agent` owns all subprocess-monitoring work in this session.
+You MUST spawn `monitor_agent` for any request that involves starting, listing, or stopping a streaming monitor of a shell command — including "tail this log", "watch the build", "tell me as new lines arrive", "stop monitor X".
+You MUST NOT call `monitor_start`, `monitor_list`, or `monitor_stop` yourself; delegate to `monitor_agent` and let it pick the right tool.
 This agent has access ONLY to `monitor_start`, `monitor_list`, `monitor_stop`.
-Delegate when the user wants to tail logs, watch a build/test, or get notified as new lines appear.
+Trigger phrases that route here: "watch / tail / monitor / stream", "tell me when X finishes", "report progress of <long command>", "stop the monitor / list monitors".
 Do NOT use for fixed schedules (use `cron_agent`) or for repeated prompted iterations (use `loop_agent`)."#.to_string()),
                         config_file: Some("monitor_agent.toml".to_string().parse().unwrap_or_default()),
                         nickname_candidates: None,
@@ -503,9 +507,11 @@ Do NOT use for fixed schedules (use `cron_agent`) or for repeated prompted itera
                 (
                     "loop_agent".to_string(),
                     AgentRoleConfig {
-                        description: Some(r#"Use `loop_agent` to repeat a prompt on a fixed interval until explicitly stopped.
+                        description: Some(r#"`loop_agent` owns all self-driving polling-loop work in this session.
+You MUST spawn `loop_agent` for any request that involves starting, listing, or stopping a recurring prompt that keeps firing on a fixed interval — e.g. "keep checking until X", "stay on this until done", "poll until merged", "stop the loop".
+You MUST NOT call `loop_start`, `loop_list`, or `loop_stop` yourself; delegate to `loop_agent` and let it pick the right tool.
 This agent has access ONLY to `loop_start`, `loop_list`, `loop_stop`.
-Delegate when the user says "keep checking until X" or "stay on this until done" — a self-driving polling loop.
+Trigger phrases that route here: "keep checking / keep polling / keep retrying until ...", "babysit X until done", "stay on this until ...", "stop the loop / list loops".
 Do NOT use for fixed wall-clock schedules (use `cron_agent`) or for streaming subprocess output (use `monitor_agent`)."#.to_string()),
                         config_file: Some("loop_agent.toml".to_string().parse().unwrap_or_default()),
                         nickname_candidates: None,

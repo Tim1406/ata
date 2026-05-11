@@ -710,7 +710,11 @@ impl Codex {
             let tx_sub_for_cron = session.submission_tx.clone();
             let session_weak = Arc::downgrade(&session);
             tokio::spawn(async move {
-                let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
+                // 1-second tick so sub-minute cron expressions (e.g. "*/10")
+                // fire on time. The registry scan inside `take_due` is a
+                // cheap hashmap pass — running it 60x more often than a
+                // minute-grain engine adds negligible load.
+                let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
                 // First tick fires immediately; skip it so we don't fire at
                 // session start before any job has been created.
                 tick.tick().await;

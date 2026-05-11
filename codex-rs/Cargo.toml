@@ -118,6 +118,7 @@ members = [
     "codex-elevenlabs",
     "reading-view-server",
     "scheduler",
+    "scheduling",
     "package-manager",
     "artifacts",
     "codex-workspace",
@@ -253,6 +254,7 @@ codex-lsp-client = { path = "lsp-client" }
 codex-treesitter = { path = "treesitter" }
 codex-reading-view-server = { path = "reading-view-server" }
 codex-scheduler = { path = "scheduler" }
+codex-scheduling = { path = "scheduling" }
 codex-package-manager = { path = "package-manager" }
 codex-artifacts = { path = "artifacts" }
 codex-test-macros = { path = "test-macros" }

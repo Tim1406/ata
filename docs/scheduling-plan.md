@@ -1,6 +1,6 @@
 # Scheduling: Cron / Monitor / Loop
 
-Status: **Phase 0 complete** (feature flag registered).
+Status: **Phase 1 complete** (crate skeleton + data types).
 
 This document tracks the multi-phase work to add Claude Code-style scheduling
 primitives (Cron / Monitor / Loop) to ata as agent-facing tools, and to evaluate
@@ -56,7 +56,7 @@ Driver: Nima (meeting 2026-05-10).
 | Phase | Scope | Estimate | Status |
 |---|---|---|---|
 | 0 | Foundation: register feature flag, no behavior change | 1-2 days | **DONE** |
-| 1 | Unified crate core (`CronJob`, `MonitorTask`, `LoopTask` primitives) | ~1 week | pending |
+| 1 | Unified crate core (`CronJob`, `MonitorTask`, `LoopTask` primitives) | ~1 week | **DONE** |
 | 2 | Agent-facing tools + tool-selection eval | ~1 week | pending |
 | 3 | TUI inspection (view / kill / delete) | ~3-5 days | pending |
 | 4 | Resume + state semantics | ~3-5 days | pending |
@@ -110,20 +110,54 @@ key under `[features]` in `config.toml`. (Same pattern as Tho's CI fix commit
 
 ---
 
-## Phase 1 — Unified crate core (PLANNED)
+## Phase 1 — Unified crate core (DONE)
 
 ### Goal
-Stand up a new crate (`codex-scheduling` or similar) that owns the three
-primitives. Gated entirely behind `Feature::Scheduling`.
+Stand up a new crate (`codex-scheduling`) that owns the three primitives as
+data types. No agent tools, no timer logic, no TUI — just structure.
 
-### Anticipated work
-- New crate skeleton with `Cargo.toml` + `lib.rs`
-- Types:
-  - `CronJob` (cron expression, prompt, session-scoped)
-  - `MonitorTask` (background command, line-streaming back to agent)
-  - `LoopTask` (model-paced wakeups via `ScheduleWakeup`-like API)
-  - Shared `TaskId`, `TaskStatus`, `TaskKind`
-- Hookpoints for Phase 2 to register agent tools
+### What was changed
+
+**New crate:** `codex-rs/scheduling/`
+
+| File | Contents |
+|---|---|
+| `Cargo.toml` | Manifest. Dependencies: `serde`, `chrono`, `cron`, `uuid`, `thiserror`. |
+| `src/lib.rs` | Module declarations + re-exports. |
+| `src/task.rs` | `TaskId` (UUID newtype), `TaskKind` (Cron/Monitor/Loop), `TaskStatus` (Pending/Running/Completed/Failed/Killed/Interrupted). |
+| `src/cron_job.rs` | `CronJob` struct + `CronError`. Validates cron expression at construction. |
+| `src/monitor.rs` | `MonitorTask` struct. |
+| `src/loop_task.rs` | `LoopTask` struct. Fixed interval *or* dynamic (model-paced). |
+
+**Workspace integration:** [codex-rs/Cargo.toml](../codex-rs/Cargo.toml)
+- Added `"scheduling"` to workspace members.
+- Added `codex-scheduling = { path = "scheduling" }` to workspace dependencies.
+
+### Design notes
+
+- `TaskStatus::Interrupted` is reserved for the resume path (Phase 4): tasks
+  caught `Running` at session exit get re-labeled `Interrupted` on reload so
+  the user can decide whether to restart.
+- `LoopTask::interval == None` means model-paced (Claude Code's
+  `ScheduleWakeup` semantics); `Some(duration)` means fixed cadence.
+- All structs derive `Serialize`/`Deserialize` so they can be persisted to
+  the session journal in Phase 4 without further plumbing.
+- `CronJob::new` validates the expression via the `cron` crate (same
+  dependency the existing `codex-scheduler` uses) — invalid expressions
+  fail fast at construction.
+
+### Verification
+- `cargo check -p codex-scheduling` → compiles
+- `cargo test -p codex-scheduling` → 12/12 tests pass (id uniqueness,
+  JSON roundtrip, cron expression validation, initial state assertions)
+
+### What was NOT done in Phase 1
+- ❌ No agent tools (`CronCreate`, `Monitor`, `Loop` — Phase 2)
+- ❌ No timer engine that actually fires `CronJob`s
+- ❌ No subprocess management for `MonitorTask`
+- ❌ No wakeup mechanism for `LoopTask`
+- ❌ No `Feature::Scheduling` gating at call sites yet (nothing calls into the crate)
+- ❌ No TUI (Phase 3), no resume logic (Phase 4), no JSON logs (Phase 5)
 
 ---
 

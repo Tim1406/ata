@@ -3702,6 +3702,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-scheduling"
+version = "0.129.0"
+dependencies = [
+ "chrono",
+ "cron",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "uuid",
+]
+
+[[package]]
 name = "codex-secrets"
 version = "0.0.0"
 dependencies = [

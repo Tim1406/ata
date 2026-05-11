@@ -471,12 +471,9 @@ They write results to a staging file and return the path.".to_string()),
                 (
                     "cron_agent".to_string(),
                     AgentRoleConfig {
-                        description: Some(r#"`cron_agent` owns all cron-job work in this session.
-You MUST spawn `cron_agent` for any request that involves creating, listing, or deleting recurring scheduled prompts — even one-off requests like "schedule X every minute" or "delete the ping cron".
-You MUST NOT call `cron_create`, `cron_list`, or `cron_delete` yourself; delegate to `cron_agent` and let it pick the right tool.
-This agent has access ONLY to `cron_create`, `cron_list`, `cron_delete`.
-Trigger phrases that route here: "every X seconds/minutes/hours", "at Hh:Mm", "daily/weekly/Monday morning", "stop the cron / list crons / delete the ... cron".
-Do NOT use for streaming command output (use `monitor_agent`) or for "keep checking until done" (use `loop_agent`)."#.to_string()),
+                        description: Some(r#"`cron_agent` is a focused, tool-restricted worker for cron jobs (access ONLY to `cron_create`, `cron_list`, `cron_delete`).
+DEFAULT BEHAVIOR: call `cron_create` / `cron_list` / `cron_delete` yourself in the main session for typical scheduling requests — the user keeps full context and there is no spawn latency.
+Use `cron_agent` only as an opt-in for multi-step cron orchestrations where a focused, isolated scope genuinely helps (e.g. setting up a complex schedule plus auditing existing jobs in one task). For one-off "schedule X every Y" or "delete the … cron", do it inline."#.to_string()),
                         config_file: Some("cron_agent.toml".to_string().parse().unwrap_or_default()),
                         nickname_candidates: None,
                         tool_allowlist: Some(vec![
@@ -507,12 +504,9 @@ Do NOT use for fixed schedules (use `cron_agent`) or for repeated prompted itera
                 (
                     "loop_agent".to_string(),
                     AgentRoleConfig {
-                        description: Some(r#"`loop_agent` owns all self-driving polling-loop work in this session.
-You MUST spawn `loop_agent` for any request that involves starting, listing, or stopping a recurring prompt that keeps firing on a fixed interval — e.g. "keep checking until X", "stay on this until done", "poll until merged", "stop the loop".
-You MUST NOT call `loop_start`, `loop_list`, or `loop_stop` yourself; delegate to `loop_agent` and let it pick the right tool.
-This agent has access ONLY to `loop_start`, `loop_list`, `loop_stop`.
-Trigger phrases that route here: "keep checking / keep polling / keep retrying until ...", "babysit X until done", "stay on this until ...", "stop the loop / list loops".
-Do NOT use for fixed wall-clock schedules (use `cron_agent`) or for streaming subprocess output (use `monitor_agent`)."#.to_string()),
+                        description: Some(r#"`loop_agent` is a focused, tool-restricted worker for polling loops (access ONLY to `loop_start`, `loop_list`, `loop_stop`).
+DEFAULT BEHAVIOR: call `loop_start` / `loop_list` / `loop_stop` yourself in the main session for typical polling requests — keeping the main agent's context is important, and there is no spawn latency.
+Use `loop_agent` only as an opt-in for multi-step loop orchestrations where a focused scope genuinely helps. For one-off "keep checking … until …" or "stop the loop", do it inline."#.to_string()),
                         config_file: Some("loop_agent.toml".to_string().parse().unwrap_or_default()),
                         nickname_candidates: None,
                         tool_allowlist: Some(vec![

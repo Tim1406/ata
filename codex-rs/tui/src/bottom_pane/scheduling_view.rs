@@ -148,7 +148,9 @@ impl SchedulingView {
             body.push(Line::from("  (none)".dim()));
         } else {
             for row in &snapshot.cron_jobs {
-                body.push(cron_row_line(row));
+                for line in cron_row_lines(row) {
+                    body.push(line);
+                }
             }
         }
 
@@ -158,7 +160,9 @@ impl SchedulingView {
             body.push(Line::from("  (none)".dim()));
         } else {
             for row in &snapshot.monitors {
-                body.push(monitor_row_line(row));
+                for line in monitor_row_lines(row) {
+                    body.push(line);
+                }
             }
         }
 
@@ -168,7 +172,9 @@ impl SchedulingView {
             body.push(Line::from("  (none)".dim()));
         } else {
             for row in &snapshot.loops {
-                body.push(loop_row_line(row));
+                for line in loop_row_lines(row) {
+                    body.push(line);
+                }
             }
         }
 
@@ -266,33 +272,99 @@ fn scheduling_popup_hint_line() -> Line<'static> {
     ])
 }
 
-fn cron_row_line(row: &SchedulingCronRow) -> Line<'static> {
-    let prompt = truncate(&row.prompt, 40);
-    let next = row.next_fire_at.as_deref().unwrap_or("—");
-    Line::from(format!(
-        "  {} [{}] {}  next: {}  fired: {}",
-        row.task_id, row.status, prompt, next, row.fire_count
-    ))
+/// Renders one task as two lines: a compact header (`id status prompt`) and
+/// an indented details line (`counters · timing`). Keeps both inside typical
+/// terminal widths so nothing is hidden on the right.
+fn cron_row_lines(row: &SchedulingCronRow) -> [Line<'static>; 2] {
+    let short_id = short_task_id(&row.task_id);
+    let prompt = truncate(&row.prompt, 50);
+    let head = Line::from(format!(
+        "  {short_id}  [{}]  {prompt}",
+        pad_status(&row.status)
+    ));
+    let next = row
+        .next_fire_at
+        .as_deref()
+        .and_then(relative_time)
+        .unwrap_or_else(|| "—".to_string());
+    let details = Line::from(
+        format!("      fired {} · next {}", row.fire_count, next).dim(),
+    );
+    [head, details]
 }
 
-fn monitor_row_line(row: &SchedulingMonitorRow) -> Line<'static> {
+fn monitor_row_lines(row: &SchedulingMonitorRow) -> [Line<'static>; 2] {
+    let short_id = short_task_id(&row.task_id);
     let cmd = truncate(&row.command, 60);
-    Line::from(format!(
-        "  {} [{}] {}  lines: {}",
-        row.task_id, row.status, cmd, row.lines_emitted
-    ))
+    let head = Line::from(format!(
+        "  {short_id}  [{}]  {cmd}",
+        pad_status(&row.status)
+    ));
+    let details = Line::from(
+        format!("      lines {}", row.lines_emitted).dim(),
+    );
+    [head, details]
 }
 
-fn loop_row_line(row: &SchedulingLoopRow) -> Line<'static> {
-    let prompt = truncate(&row.prompt, 40);
+fn loop_row_lines(row: &SchedulingLoopRow) -> [Line<'static>; 2] {
+    let short_id = short_task_id(&row.task_id);
+    let prompt = truncate(&row.prompt, 50);
+    let head = Line::from(format!(
+        "  {short_id}  [{}]  {prompt}",
+        pad_status(&row.status)
+    ));
     let interval = match row.interval_seconds {
         Some(s) => format!("{s}s"),
         None => "dynamic".to_string(),
     };
-    Line::from(format!(
-        "  {} [{}] {}  every {}  iter: {}",
-        row.task_id, row.status, prompt, interval, row.iteration_count
-    ))
+    let details = Line::from(
+        format!(
+            "      iter {} · every {interval}",
+            row.iteration_count
+        )
+        .dim(),
+    );
+    [head, details]
+}
+
+fn short_task_id(id: &str) -> String {
+    id.chars().take(8).collect()
+}
+
+fn pad_status(status: &str) -> String {
+    // Pad to a fixed width so heads line up.
+    let width = 9;
+    if status.chars().count() >= width {
+        status.chars().take(width).collect()
+    } else {
+        let mut out = status.to_string();
+        for _ in status.chars().count()..width {
+            out.push(' ');
+        }
+        out
+    }
+}
+
+/// Convert an RFC 3339 timestamp into a short relative string like `in 25s`
+/// / `in 2m` / `1m ago`. Returns `None` if the string can't be parsed.
+fn relative_time(rfc3339: &str) -> Option<String> {
+    let target = chrono::DateTime::parse_from_rfc3339(rfc3339).ok()?;
+    let now = chrono::Utc::now();
+    let delta = target.signed_duration_since(now);
+    let secs = delta.num_seconds();
+    let abs = secs.unsigned_abs();
+    let label = if abs < 60 {
+        format!("{abs}s")
+    } else if abs < 3600 {
+        format!("{}m", abs / 60)
+    } else {
+        format!("{}h", abs / 3600)
+    };
+    Some(if secs >= 0 {
+        format!("in {label}")
+    } else {
+        format!("{label} ago")
+    })
 }
 
 fn truncate(s: &str, max: usize) -> String {

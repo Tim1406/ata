@@ -97,8 +97,13 @@ impl CronRegistry {
                 job.last_fired_at = Some(now);
                 job.fire_count = job.fire_count.saturating_add(1);
                 job.next_fire_at = next_fire_after(&job.cron_expr, now);
+                // Recurring jobs return to `Pending` so the panel reads as
+                // "waiting for next fire" between firings rather than being
+                // stuck on `Running` forever. One-shot jobs (no next fire)
+                // transition to `Completed`. The take_due loop still accepts
+                // both `Pending | Running` above for backward compatibility.
                 job.status = if job.next_fire_at.is_some() {
-                    TaskStatus::Running
+                    TaskStatus::Pending
                 } else {
                     TaskStatus::Completed
                 };
@@ -176,8 +181,9 @@ mod tests {
         let job = reg.list().into_iter().find(|j| j.id == id).unwrap();
         assert_eq!(job.fire_count, 1);
         assert!(job.last_fired_at.is_some());
-        // Status is Running while next fire is still scheduled.
-        assert_eq!(job.status, TaskStatus::Running);
+        // Recurring jobs return to Pending after firing so the panel reads
+        // as "waiting for next fire" between firings.
+        assert_eq!(job.status, TaskStatus::Pending);
     }
 
     #[test]

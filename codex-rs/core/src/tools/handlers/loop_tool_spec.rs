@@ -37,17 +37,23 @@ pub fn create_loop_start_tool() -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: LOOP_START_TOOL_NAME.to_string(),
-        description: r#"Repeat a prompt on a fixed interval inside this session — each iteration injects the prompt as a new user message and you respond as a normal turn. Keeps running until you stop it.
+        description: r#"Repeat a prompt on a fixed interval inside this session. Each iteration injects the prompt as a new user-message turn so you can respond to it (think, run tools, summarize). Keeps running until you call loop_stop.
 
-Use when:
-- The user wants you to keep checking a condition or babysitting something until it's done (e.g. "keep checking the PR until it's merged", "wait for the build and report when done").
-- A fixed cadence makes sense (every 30s, every 5 min).
+Use this tool — NOT a shell `for` loop or `while sleep` script — whenever the user wants something recurring inside this session.
+
+Trigger phrases (use when you hear these):
+- "create a loop that ..."
+- "every N seconds/minutes, do X"
+- "run X every N seconds" (any interval that involves agent reasoning per iteration)
+- "keep checking ... until ..." (polling / babysitting a condition)
+- "repeat X N times" (the agent counts iterations and calls loop_stop on the Nth)
 
 Don't use when:
 - The user wants a recurring schedule at clock times (every hour, daily at 9am) — use cron_create.
-- You should react to streaming output as it appears — use monitor_start.
+- You should react to streaming subprocess output as it appears — use monitor_start.
+- The work is a tight pure-shell sequence with no agent reasoning per iteration (e.g. "print date 3 times back-to-back as fast as possible") — a `for` loop is fine there.
 
-Returns a task_id you can pass to loop_stop. Iteration count and last-fired time are exposed via loop_list."#
+Returns a task_id usable with loop_stop. Iteration count and last-fired time are exposed via loop_list. Minimum interval is 5 seconds."#
             .to_string(),
         strict: false,
         defer_loading: None,

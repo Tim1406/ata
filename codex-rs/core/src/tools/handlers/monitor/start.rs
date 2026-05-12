@@ -9,9 +9,7 @@ use codex_scheduling::MonitorTask;
 use codex_scheduling::TaskId;
 use codex_scheduling::TaskStatus;
 use codex_tools::ToolName;
-use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::Mutex;
 use tokio::io::AsyncBufReadExt;
 use tokio::io::BufReader;
 use tokio::process::Command;
@@ -107,11 +105,6 @@ impl ToolHandler for MonitorStartHandler {
     }
 }
 
-/// Last N lines we retain to include as a tail in the agent-visible summary
-/// emitted when the monitor terminates. Bounded so a runaway monitor can't
-/// pin memory.
-const MONITOR_TAIL_LINES: usize = 20;
-
 async fn run_monitor(
     task_id: TaskId,
     command: String,
@@ -131,14 +124,8 @@ async fn run_monitor(
         Err(err) => {
             registry.mark_terminal(&task_id, TaskStatus::Failed, Utc::now());
             tracing::warn!("monitor_start failed to spawn `{command}`: {err}");
-            emit_terminate_summary(
-                &task_id,
-                &command,
-                TaskStatus::Failed,
-                /*tail*/ Vec::new(),
-                &tx_sub,
-            )
-            .await;
+            emit_terminate_summary(&task_id, &command, TaskStatus::Failed, Vec::new(), &tx_sub)
+                .await;
             return;
         }
     };
@@ -149,23 +136,12 @@ async fn run_monitor(
         Some(s) => s,
         None => {
             registry.mark_terminal(&task_id, TaskStatus::Failed, Utc::now());
-            emit_terminate_summary(
-                &task_id,
-                &command,
-                TaskStatus::Failed,
-                Vec::new(),
-                &tx_sub,
-            )
-            .await;
+            emit_terminate_summary(&task_id, &command, TaskStatus::Failed, Vec::new(), &tx_sub)
+                .await;
             return;
         }
     };
     let stderr = child.stderr.take();
-
-    // Shared ring buffer of the last MONITOR_TAIL_LINES lines (stdout +
-    // stderr interleaved). Used solely to build the terminate summary.
-    let tail: Arc<Mutex<VecDeque<String>>> =
-        Arc::new(Mutex::new(VecDeque::with_capacity(MONITOR_TAIL_LINES)));
 
     let mut stdout_reader = BufReader::new(stdout).lines();
 
@@ -173,7 +149,6 @@ async fn run_monitor(
         let registry_for_stderr = registry.clone();
         let task_id_for_stderr = task_id.clone();
         let session_for_stderr = session.clone();
-        let tail_for_stderr = tail.clone();
         Some(tokio::spawn(async move {
             let mut reader = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = reader.next_line().await {
@@ -183,7 +158,6 @@ async fn run_monitor(
                     &line,
                     &registry_for_stderr,
                     &session_for_stderr,
-                    &tail_for_stderr,
                 )
                 .await;
             }
@@ -195,7 +169,7 @@ async fn run_monitor(
     loop {
         match stdout_reader.next_line().await {
             Ok(Some(line)) => {
-                emit_line(&task_id, "stdout", &line, &registry, &session, &tail).await;
+                emit_line(&task_id, "stdout", &line, &registry, &session).await;
             }
             Ok(None) => break,
             Err(err) => {
@@ -205,7 +179,6 @@ async fn run_monitor(
         }
     }
 
-    // Make sure stderr drainer also finishes before we summarize.
     if let Some(h) = stderr_handle {
         let _ = h.await;
     }
@@ -217,11 +190,8 @@ async fn run_monitor(
     };
     registry.mark_terminal(&task_id, status, Utc::now());
 
-    let tail_snapshot: Vec<String> = tail
-        .lock()
-        .map(|t| t.iter().cloned().collect())
-        .unwrap_or_default();
-    emit_terminate_summary(&task_id, &command, status, tail_snapshot, &tx_sub).await;
+    let tail = registry.tail_snapshot(&task_id);
+    emit_terminate_summary(&task_id, &command, status, tail, &tx_sub).await;
 }
 
 async fn emit_line(
@@ -230,16 +200,9 @@ async fn emit_line(
     line: &str,
     registry: &Arc<codex_scheduling::MonitorRegistry>,
     session: &Arc<Session>,
-    tail: &Arc<Mutex<VecDeque<String>>>,
 ) {
     registry.record_line(task_id);
-
-    if let Ok(mut buf) = tail.lock() {
-        if buf.len() == MONITOR_TAIL_LINES {
-            buf.pop_front();
-        }
-        buf.push_back(format!("[{stream}] {line}"));
-    }
+    registry.record_tail_line(task_id, format!("[{stream}] {line}"));
 
     let event = Event {
         id: format!("monitor-{}", Uuid::now_v7()),

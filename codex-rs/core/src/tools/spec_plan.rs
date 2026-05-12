@@ -14,6 +14,7 @@ use crate::tools::handlers::LoopStopHandler;
 use crate::tools::handlers::MonitorListHandler;
 use crate::tools::handlers::MonitorStartHandler;
 use crate::tools::handlers::MonitorStopHandler;
+use crate::tools::handlers::MonitorWaitHandler;
 use crate::tools::handlers::CropFigureHandler;
 use crate::tools::handlers::DocumentReaderHandler;
 use crate::tools::handlers::DynamicToolHandler;
@@ -55,6 +56,7 @@ use crate::tools::handlers::loop_tool_spec::create_loop_stop_tool;
 use crate::tools::handlers::monitor_spec::create_monitor_list_tool;
 use crate::tools::handlers::monitor_spec::create_monitor_start_tool;
 use crate::tools::handlers::monitor_spec::create_monitor_stop_tool;
+use crate::tools::handlers::monitor_spec::create_monitor_wait_tool;
 use crate::tools::handlers::js_repl::JsReplHandler;
 use crate::tools::handlers::js_repl_spec::create_js_repl_tool;
 use crate::tools::handlers::multi_agents::CloseAgentHandler;
@@ -261,6 +263,11 @@ pub fn build_tool_registry_builder(
             /*supports_parallel_tool_calls*/ false,
         );
         builder.register_handler(Arc::new(MonitorStopHandler));
+        builder.push_spec(
+            create_monitor_wait_tool(),
+            /*supports_parallel_tool_calls*/ false,
+        );
+        builder.register_handler(Arc::new(MonitorWaitHandler));
         builder.push_spec(
             create_loop_start_tool(),
             /*supports_parallel_tool_calls*/ false,

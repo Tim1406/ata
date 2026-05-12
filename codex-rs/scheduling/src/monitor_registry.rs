@@ -12,15 +12,24 @@
 use chrono::DateTime;
 use chrono::Utc;
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::sync::Mutex;
 
 use crate::monitor::MonitorTask;
 use crate::task::TaskId;
 use crate::task::TaskStatus;
 
+/// Number of most-recent output lines retained per monitor so callers (e.g.
+/// `monitor_wait`) can return a summary tail. Bounded to keep memory
+/// predictable regardless of how chatty the underlying command is.
+pub const MONITOR_TAIL_CAPACITY: usize = 40;
+
 #[derive(Debug, Default)]
 pub struct MonitorRegistry {
     monitors: Mutex<HashMap<TaskId, MonitorTask>>,
+    /// Ring buffer of the most recent ~MONITOR_TAIL_CAPACITY output lines
+    /// per monitor. Used to power `monitor_wait` and terminate summaries.
+    tails: Mutex<HashMap<TaskId, VecDeque<String>>>,
 }
 
 impl MonitorRegistry {
@@ -41,8 +50,13 @@ impl MonitorRegistry {
     }
 
     /// Remove a monitor by id. Returns the removed task if it existed.
-    /// Callers should also abort the per-monitor tokio task.
+    /// Callers should also abort the per-monitor tokio task. The tail ring
+    /// buffer is also cleared.
     pub fn remove(&self, id: &TaskId) -> Option<MonitorTask> {
+        self.tails
+            .lock()
+            .expect("MonitorRegistry tails poisoned")
+            .remove(id);
         self.monitors
             .lock()
             .expect("MonitorRegistry mutex poisoned")
@@ -82,6 +96,28 @@ impl MonitorRegistry {
         if let Some(task) = monitors.get_mut(id) {
             task.lines_emitted = task.lines_emitted.saturating_add(1);
         }
+    }
+
+    /// Append a line to the per-monitor tail ring buffer. Older lines beyond
+    /// `MONITOR_TAIL_CAPACITY` are discarded.
+    pub fn record_tail_line(&self, id: &TaskId, line: String) {
+        let mut tails = self.tails.lock().expect("MonitorRegistry tails poisoned");
+        let buf = tails.entry(id.clone()).or_insert_with(VecDeque::new);
+        if buf.len() == MONITOR_TAIL_CAPACITY {
+            buf.pop_front();
+        }
+        buf.push_back(line);
+    }
+
+    /// Snapshot the per-monitor tail. Returns an empty vec if no lines have
+    /// been recorded.
+    pub fn tail_snapshot(&self, id: &TaskId) -> Vec<String> {
+        self.tails
+            .lock()
+            .expect("MonitorRegistry tails poisoned")
+            .get(id)
+            .map(|buf| buf.iter().cloned().collect())
+            .unwrap_or_default()
     }
 
     /// Mark a monitor as running (after process spawn succeeded).

@@ -10,10 +10,12 @@ use serde::Serialize;
 mod list;
 mod start;
 mod stop;
+mod wait;
 
 pub use list::MonitorListHandler;
 pub use start::MonitorStartHandler;
 pub use stop::MonitorStopHandler;
+pub use wait::MonitorWaitHandler;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -27,10 +29,26 @@ struct MonitorStopArgs {
     task_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+struct MonitorWaitArgs {
+    task_id: String,
+    #[serde(default)]
+    timeout_seconds: Option<u64>,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 struct MonitorStartResponse {
     task_id: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+struct MonitorWaitResponse {
+    status: String,
+    timed_out: bool,
+    tail: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]

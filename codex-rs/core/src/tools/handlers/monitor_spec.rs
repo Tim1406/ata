@@ -13,30 +13,33 @@ use std::collections::BTreeMap;
 pub const MONITOR_START_TOOL_NAME: &str = "monitor_start";
 pub const MONITOR_LIST_TOOL_NAME: &str = "monitor_list";
 pub const MONITOR_STOP_TOOL_NAME: &str = "monitor_stop";
+pub const MONITOR_WAIT_TOOL_NAME: &str = "monitor_wait";
 
 // @agent-facing
 pub fn create_monitor_start_tool() -> ToolSpec {
     let properties = BTreeMap::from([(
         "command".to_string(),
         JsonSchema::string(Some(
-            "Required. Shell command to run in the background. Each stdout line will be injected back into this session as a new user message so you can react to it. Examples: `tail -F build.log`, `ping -c 30 example.com`, `cargo test 2>&1`."
+            "Required. Shell command to run in the background. Examples: `tail -F build.log`, `ping -c 30 example.com`, `cargo test 2>&1`."
                 .to_string(),
         )),
     )]);
 
     ToolSpec::Function(ResponsesApiTool {
         name: MONITOR_START_TOOL_NAME.to_string(),
-        description: r#"Spawn a background shell command and stream each output line back into this session as a new user-message turn — so you can react to the output as it appears.
+        description: r#"Spawn a background shell command. Each output line is streamed to the user's view in real time; on termination you receive a single summary message with status and the tail of output.
+
+Returns immediately with a task_id. To wait for the command to finish and get the final output in the same turn, call `monitor_wait` with that task_id.
 
 Use when:
-- The user wants you to react to streaming output (logs, build progress, test results, network probes) as it arrives.
+- The user wants to run a long-running command (build, test, ping, log tail) and react to the result.
 - There is no fixed schedule — work happens whenever output appears.
 
 Don't use when:
 - The user wants something to happen on a fixed schedule (every minute, daily at 9am) — use cron_create.
-- The user wants you to keep checking a condition with model-paced retries until it's met — use the loop tool.
+- The user wants model-paced retries until a condition is met — use the loop tool.
 
-Returns a task_id usable with monitor_stop. The command runs until it exits naturally or you stop it. Each stdout line becomes its own user-message turn in this conversation."#
+The command runs until it exits naturally or you call `monitor_stop`."#
             .to_string(),
         strict: false,
         defer_loading: None,
@@ -64,6 +67,48 @@ Returns each monitor's task_id, command, status (Pending / Running / Completed /
         strict: false,
         defer_loading: None,
         parameters: JsonSchema::object(BTreeMap::new(), Some(Vec::new()), Some(false.into())),
+        output_schema: None,
+    })
+}
+
+// @agent-facing
+pub fn create_monitor_wait_tool() -> ToolSpec {
+    let properties = BTreeMap::from([
+        (
+            "task_id".to_string(),
+            JsonSchema::string(Some(
+                "Required. The task_id returned from monitor_start.".to_string(),
+            )),
+        ),
+        (
+            "timeout_seconds".to_string(),
+            JsonSchema::number(Some(
+                "Optional. Maximum seconds to wait before returning even if the monitor is still running. Defaults to 600 (10 minutes)."
+                    .to_string(),
+            )),
+        ),
+    ]);
+
+    ToolSpec::Function(ResponsesApiTool {
+        name: MONITOR_WAIT_TOOL_NAME.to_string(),
+        description: r#"Block until a running monitor terminates and return its final status plus the tail of its output. Use this right after monitor_start when you want the result in the same turn instead of polling.
+
+Returns: { status: "Completed" | "Failed" | "Killed" | "Running" (on timeout), tail: [string] }.
+
+Use when:
+- You started a monitor and want to use its output in the same response (e.g. report the result, summarize errors).
+- The user asked for a result that depends on a command finishing.
+
+Don't use when:
+- The user wants the monitor to keep running in the background — just call monitor_start and move on."#
+            .to_string(),
+        strict: false,
+        defer_loading: None,
+        parameters: JsonSchema::object(
+            properties,
+            Some(vec!["task_id".to_string()]),
+            Some(false.into()),
+        ),
         output_schema: None,
     })
 }

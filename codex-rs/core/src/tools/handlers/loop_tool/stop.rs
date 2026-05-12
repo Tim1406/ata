@@ -53,9 +53,12 @@ impl ToolHandler for LoopStopHandler {
 
         let aborted = runtime.abort(&task_id);
         if aborted {
+            // Stopping a loop via this tool is a graceful end (the agent
+            // decided the loop's job is done), not a forced kill. Surface
+            // it as Completed in `/scheduling` so the status reads honestly.
             runtime
                 .registry
-                .mark_terminal(&task_id, TaskStatus::Killed, Utc::now());
+                .mark_terminal(&task_id, TaskStatus::Completed, Utc::now());
         }
         let response = LoopStopResponse { stopped: aborted };
         let body = serde_json::to_string(&response).map_err(|err| {

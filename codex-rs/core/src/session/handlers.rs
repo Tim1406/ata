@@ -83,6 +83,89 @@ pub async fn realtime_conversation_list_voices(sess: &Session, sub_id: String) {
     .await;
 }
 
+/// ATA: gather a serializable snapshot of the session's cron / monitor / loop
+/// registries and emit it as `EventMsg::SchedulingTasksSnapshot`. The TUI
+/// `/scheduling` panel consumes this event to render the inspection view.
+///
+/// When `Feature::Scheduling` is disabled the registries are `None` on the
+/// Session, so we emit an empty snapshot with `scheduling_enabled: false`.
+/// That distinction matters for the panel — "off" vs "on but empty" render
+/// differently.
+pub async fn list_scheduling_tasks(sess: &Session, sub_id: String) {
+    use codex_protocol::protocol::SchedulingCronRow;
+    use codex_protocol::protocol::SchedulingLoopRow;
+    use codex_protocol::protocol::SchedulingMonitorRow;
+    use codex_protocol::protocol::SchedulingTasksSnapshotEvent;
+
+    let scheduling_enabled = sess.cron_registry().is_some();
+
+    let cron_jobs: Vec<SchedulingCronRow> = sess
+        .cron_registry()
+        .map(|reg| {
+            reg.list()
+                .into_iter()
+                .map(|job| SchedulingCronRow {
+                    task_id: job.id.as_str().to_string(),
+                    cron_expr: job.cron_expr,
+                    prompt: job.prompt,
+                    status: format!("{:?}", job.status),
+                    fire_count: job.fire_count,
+                    last_fired_at: job.last_fired_at.map(|ts| ts.to_rfc3339()),
+                    next_fire_at: job.next_fire_at.map(|ts| ts.to_rfc3339()),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let monitors: Vec<SchedulingMonitorRow> = sess
+        .monitor_runtime()
+        .map(|rt| {
+            rt.registry
+                .list()
+                .into_iter()
+                .map(|m| SchedulingMonitorRow {
+                    task_id: m.id.as_str().to_string(),
+                    command: m.command,
+                    status: format!("{:?}", m.status),
+                    lines_emitted: m.lines_emitted,
+                    started_at: m.started_at.map(|ts| ts.to_rfc3339()),
+                    stopped_at: m.stopped_at.map(|ts| ts.to_rfc3339()),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let loops: Vec<SchedulingLoopRow> = sess
+        .loop_runtime()
+        .map(|rt| {
+            rt.registry
+                .list()
+                .into_iter()
+                .map(|l| SchedulingLoopRow {
+                    task_id: l.id.as_str().to_string(),
+                    prompt: l.prompt,
+                    interval_seconds: l.interval.map(|d| d.as_secs()),
+                    status: format!("{:?}", l.status),
+                    iteration_count: l.iteration_count,
+                    last_iter_at: l.last_iter_at.map(|ts| ts.to_rfc3339()),
+                    next_wakeup_at: l.next_wakeup_at.map(|ts| ts.to_rfc3339()),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    sess.send_event_raw(Event {
+        id: sub_id,
+        msg: EventMsg::SchedulingTasksSnapshot(SchedulingTasksSnapshotEvent {
+            cron_jobs,
+            monitors,
+            loops,
+            scheduling_enabled,
+        }),
+    })
+    .await;
+}
+
 pub async fn override_turn_context(sess: &Session, sub_id: String, updates: SessionSettingsUpdate) {
     if let Err(err) = sess.update_settings(updates).await {
         sess.send_event_raw(Event {
@@ -725,6 +808,10 @@ pub(super) async fn submission_loop(
                 }
                 Op::CleanBackgroundTerminals => {
                     clean_background_terminals(&sess).await;
+                    false
+                }
+                Op::ListSchedulingTasks => {
+                    list_scheduling_tasks(&sess, sub.id.clone()).await;
                     false
                 }
                 Op::RealtimeConversationStart(params) => {

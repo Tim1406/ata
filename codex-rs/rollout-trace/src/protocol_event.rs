@@ -281,7 +281,8 @@ pub(crate) fn tool_runtime_trace_event(event: &EventMsg) -> Option<ToolRuntimeTr
         | EventMsg::UpdateDocumentSection(_)
         | EventMsg::AppendDocumentSection(_)
         | EventMsg::AddDocumentSection(_)
-        | EventMsg::PatchDocumentSection(_) => None,
+        | EventMsg::PatchDocumentSection(_)
+        | EventMsg::SchedulingTasksSnapshot(_) => None,
     }
 }
 
@@ -365,7 +366,8 @@ pub(crate) fn wrapped_protocol_event_type(event: &EventMsg) -> Option<&'static s
         | EventMsg::UpdateDocumentSection(_)
         | EventMsg::AppendDocumentSection(_)
         | EventMsg::AddDocumentSection(_)
-        | EventMsg::PatchDocumentSection(_) => None,
+        | EventMsg::PatchDocumentSection(_)
+        | EventMsg::SchedulingTasksSnapshot(_) => None,
     }
 }
 

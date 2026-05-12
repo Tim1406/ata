@@ -8683,6 +8683,21 @@ impl ChatWidget {
         self.bottom_pane.show_view(Box::new(view));
     }
 
+    /// Phase 3, Slice 1a: open the (stub) scheduling inspection panel.
+    /// Currently shows a placeholder; real cron/monitor/loop list arrives in
+    /// Slice 1b when the cross-process snapshot Op/Event lands.
+    pub(crate) fn open_scheduling_popup(&mut self) {
+        if !self.config.features.enabled(codex_features::Feature::Scheduling) {
+            self.add_info_message(
+                "Scheduling is not enabled. Toggle it on in /experimental first.".to_string(),
+                None,
+            );
+            return;
+        }
+        let view = crate::bottom_pane::SchedulingView::new();
+        self.bottom_pane.show_view(Box::new(view));
+    }
+
     fn approval_preset_actions(
         approval: AskForApproval,
         permission_profile: PermissionProfile,

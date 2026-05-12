@@ -763,6 +763,12 @@ pub enum Op {
         /// The raw command string after '!'
         command: String,
     },
+
+    /// ATA: request a snapshot of in-session scheduling state (cron jobs,
+    /// monitors, loops) for display in the `/scheduling` TUI panel. Server
+    /// responds with [`EventMsg::SchedulingTasksSnapshot`]. No-op when
+    /// `Feature::Scheduling` is disabled (server emits an empty snapshot).
+    ListSchedulingTasks,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, JsonSchema)]
@@ -864,6 +870,7 @@ impl Op {
             Self::ApproveGuardianDeniedAction { .. } => "approve_guardian_denied_action",
             Self::Shutdown => "shutdown",
             Self::RunUserShellCommand { .. } => "run_user_shell_command",
+            Self::ListSchedulingTasks => "list_scheduling_tasks",
         }
     }
 }
@@ -1422,6 +1429,12 @@ pub enum EventMsg {
     PatchDocumentSection(crate::document_reader::PatchDocumentSectionEvent),
 
     TurnAborted(TurnAbortedEvent),
+
+    /// ATA: response to [`Op::ListSchedulingTasks`]. Contains the current
+    /// state of all cron jobs, monitors, and loops in the session at the time
+    /// the snapshot was taken. The TUI `/scheduling` panel consumes this event
+    /// to render a live inspection view.
+    SchedulingTasksSnapshot(SchedulingTasksSnapshotEvent),
 
     /// Notification that the agent is shutting down.
     ShutdownComplete,
@@ -3699,6 +3712,66 @@ pub struct TurnAbortedEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(type = "number | null", optional)]
     pub duration_ms: Option<i64>,
+}
+
+/// ATA: per-cron-job row in [`SchedulingTasksSnapshotEvent`]. Timestamps are
+/// RFC 3339 strings (rather than i64) so the TUI can render them without
+/// pulling in chrono on the wire.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS)]
+pub struct SchedulingCronRow {
+    pub task_id: String,
+    pub cron_expr: String,
+    pub prompt: String,
+    pub status: String,
+    pub fire_count: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_fired_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_fire_at: Option<String>,
+}
+
+/// ATA: per-monitor row in [`SchedulingTasksSnapshotEvent`].
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS)]
+pub struct SchedulingMonitorRow {
+    pub task_id: String,
+    pub command: String,
+    pub status: String,
+    pub lines_emitted: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stopped_at: Option<String>,
+}
+
+/// ATA: per-loop row in [`SchedulingTasksSnapshotEvent`].
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS)]
+pub struct SchedulingLoopRow {
+    pub task_id: String,
+    pub prompt: String,
+    /// Fixed-interval loops report their interval here in seconds; dynamic /
+    /// model-paced loops are `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null", optional)]
+    pub interval_seconds: Option<u64>,
+    pub status: String,
+    pub iteration_count: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_iter_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_wakeup_at: Option<String>,
+}
+
+/// ATA: response payload for [`Op::ListSchedulingTasks`]. Always non-null —
+/// when scheduling is disabled or no tasks exist, the lists are empty rather
+/// than the whole event being omitted.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS)]
+pub struct SchedulingTasksSnapshotEvent {
+    pub cron_jobs: Vec<SchedulingCronRow>,
+    pub monitors: Vec<SchedulingMonitorRow>,
+    pub loops: Vec<SchedulingLoopRow>,
+    /// True iff `Feature::Scheduling` is enabled for the session. Lets the
+    /// TUI distinguish "scheduling off" from "scheduling on but no tasks".
+    pub scheduling_enabled: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, JsonSchema, TS)]

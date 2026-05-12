@@ -59,6 +59,7 @@ pub enum SlashCommand {
     Plugins,
     Workspace,
     Jobs,
+    Scheduling,
     Research,
     Logout,
     Quit,
@@ -147,6 +148,9 @@ impl SlashCommand {
                 "summarize the active workspace; manage with `ata workspace`"
             }
             SlashCommand::Jobs => "summarize scheduled jobs; manage with `ata jobs`",
+            SlashCommand::Scheduling => {
+                "inspect cron jobs, monitors, and loops scheduled in this session"
+            }
             SlashCommand::Research => {
                 "summarize research toolkit status; run one-off via `ata research`"
             }
@@ -238,6 +242,7 @@ impl SlashCommand {
             | SlashCommand::Plugins
             | SlashCommand::Workspace
             | SlashCommand::Jobs
+            | SlashCommand::Scheduling
             | SlashCommand::Research
             | SlashCommand::Title
             | SlashCommand::Statusline

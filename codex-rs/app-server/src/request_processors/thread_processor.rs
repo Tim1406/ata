@@ -536,6 +536,16 @@ impl ThreadRequestProcessor {
             .map(|response| Some(response.into()))
     }
 
+    pub(crate) async fn scheduling_tasks_list(
+        &self,
+        request_id: &ConnectionRequestId,
+        params: SchedulingTasksListParams,
+    ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
+        self.scheduling_tasks_list_inner(request_id, params)
+            .await
+            .map(|response| Some(response.into()))
+    }
+
     pub(crate) async fn thread_background_terminals_clean(
         &self,
         request_id: &ConnectionRequestId,
@@ -1701,6 +1711,20 @@ impl ThreadRequestProcessor {
             .await
             .map_err(|err| internal_error(format!("failed to start compaction: {err}")))?;
         Ok(ThreadCompactStartResponse {})
+    }
+
+    async fn scheduling_tasks_list_inner(
+        &self,
+        request_id: &ConnectionRequestId,
+        params: SchedulingTasksListParams,
+    ) -> Result<SchedulingTasksListResponse, JSONRPCErrorError> {
+        let SchedulingTasksListParams { thread_id } = params;
+
+        let (_, thread) = self.load_thread(&thread_id).await?;
+        self.submit_core_op(request_id, thread.as_ref(), Op::ListSchedulingTasks)
+            .await
+            .map_err(|err| internal_error(format!("failed to list scheduling tasks: {err}")))?;
+        Ok(SchedulingTasksListResponse {})
     }
 
     async fn thread_background_terminals_clean_inner(

@@ -1276,6 +1276,17 @@ pub(crate) async fn apply_bespoke_event_handling(
                 ))
                 .await;
         }
+        // ATA scheduling: forward `/scheduling` snapshot from session to TUI.
+        EventMsg::SchedulingTasksSnapshot(event) => {
+            outgoing
+                .send_server_notification(ServerNotification::SchedulingTasksSnapshot(
+                    codex_app_server_protocol::SchedulingTasksSnapshotNotification {
+                        thread_id: conversation_id.to_string(),
+                        event,
+                    },
+                ))
+                .await;
+        }
 
         _ => {}
     }

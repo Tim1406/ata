@@ -693,6 +693,10 @@ impl App {
                     .await?;
                 Ok(true)
             }
+            AppCommand::ListSchedulingTasks => {
+                app_server.scheduling_tasks_list(thread_id).await?;
+                Ok(true)
+            }
             _ => Ok(false),
         }
     }

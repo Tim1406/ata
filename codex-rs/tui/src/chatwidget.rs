@@ -6591,6 +6591,9 @@ impl ChatWidget {
             ServerNotification::PatchDocumentSection(notification) => {
                 self.on_patch_document_section(notification.event);
             }
+            ServerNotification::SchedulingTasksSnapshot(notification) => {
+                self.on_scheduling_tasks_snapshot(notification.event);
+            }
         }
     }
 
@@ -8683,9 +8686,10 @@ impl ChatWidget {
         self.bottom_pane.show_view(Box::new(view));
     }
 
-    /// Phase 3, Slice 1a: open the (stub) scheduling inspection panel.
-    /// Currently shows a placeholder; real cron/monitor/loop list arrives in
-    /// Slice 1b when the cross-process snapshot Op/Event lands.
+    /// Open the `/scheduling` inspection panel and request a fresh snapshot.
+    /// The panel starts in a loading state; the snapshot arrives over the
+    /// app-server `scheduling/tasks/snapshot` notification and is pushed into
+    /// the active view via `BottomPane::notify_scheduling_snapshot`.
     pub(crate) fn open_scheduling_popup(&mut self) {
         if !self.config.features.enabled(codex_features::Feature::Scheduling) {
             self.add_info_message(
@@ -8696,6 +8700,17 @@ impl ChatWidget {
         }
         let view = crate::bottom_pane::SchedulingView::new();
         self.bottom_pane.show_view(Box::new(view));
+        // Kick off the snapshot fetch. The reply arrives as a
+        // `ServerNotification::SchedulingTasksSnapshot`.
+        self.app_event_tx
+            .send(crate::app_event::AppEvent::CodexOp(AppCommand::ListSchedulingTasks));
+    }
+
+    pub(crate) fn on_scheduling_tasks_snapshot(
+        &mut self,
+        snapshot: codex_protocol::protocol::SchedulingTasksSnapshotEvent,
+    ) {
+        self.bottom_pane.notify_scheduling_snapshot(snapshot);
     }
 
     fn approval_preset_actions(

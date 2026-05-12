@@ -1248,6 +1248,19 @@ impl BottomPane {
         }
     }
 
+    /// Forward a `/scheduling` snapshot to the active view (if it owns the
+    /// scheduling panel). Non-scheduling views ignore the call via the
+    /// `BottomPaneView` default impl.
+    pub(crate) fn notify_scheduling_snapshot(
+        &mut self,
+        snapshot: codex_protocol::protocol::SchedulingTasksSnapshotEvent,
+    ) {
+        if let Some(view) = self.view_stack.last_mut() {
+            view.handle_scheduling_snapshot(snapshot);
+            self.request_redraw();
+        }
+    }
+
     /// If the active view is a document reader that just closed, return the
     /// document id so the host can release any cached state for it.
     /// (Wired during the closed-document-tracking follow-up.)

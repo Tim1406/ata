@@ -107,6 +107,10 @@ pub(crate) enum AppCommand {
     ApproveGuardianDeniedAction {
         event: GuardianAssessmentEvent,
     },
+    /// ATA scheduling: request a snapshot of cron/monitor/loop tasks for the
+    /// active thread. Response arrives as a `SchedulingTasksSnapshot`
+    /// notification.
+    ListSchedulingTasks,
 }
 
 impl AppCommand {

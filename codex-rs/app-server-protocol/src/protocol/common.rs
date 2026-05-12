@@ -538,6 +538,14 @@ client_request_definitions! {
         serialization: thread_id(params.thread_id),
         response: v2::ThreadCompactStartResponse,
     },
+    // ATA scheduling: request a snapshot of cron/monitor/loop tasks for the
+    // thread. Response is empty; the actual snapshot arrives as a
+    // `SchedulingTasksSnapshot` notification.
+    SchedulingTasksList => "scheduling/tasks/list" {
+        params: v2::SchedulingTasksListParams,
+        serialization: thread_id(params.thread_id),
+        response: v2::SchedulingTasksListResponse,
+    },
     ThreadShellCommand => "thread/shellCommand" {
         params: v2::ThreadShellCommandParams,
         serialization: thread_id(params.thread_id),
@@ -1509,6 +1517,10 @@ server_notification_definitions! {
     AppendDocumentSection => "document/section/append" (v2::AppendDocumentSectionNotification),
     AddDocumentSection => "document/section/add" (v2::AddDocumentSectionNotification),
     PatchDocumentSection => "document/section/patch" (v2::PatchDocumentSectionNotification),
+
+    // ATA scheduling: snapshot response to `Op::ListSchedulingTasks` used by
+    // the `/scheduling` TUI panel.
+    SchedulingTasksSnapshot => "scheduling/tasks/snapshot" (v2::SchedulingTasksSnapshotNotification),
 }
 
 client_notification_definitions! {

@@ -2769,8 +2769,35 @@ impl Session {
             }
         }
         if turn_context.config.include_skill_instructions {
+            // ATA scheduling: when the new Cron/Monitor/Loop tools are
+            // enabled, hide the legacy `job-manager` skill so the agent
+            // doesn't fall back to it. Done at the call site (rather than in
+            // core-skills) to keep our merge surface with upstream small.
+            let filtered_outcome = if turn_context
+                .features
+                .enabled(Feature::Scheduling)
+            {
+                let mut filtered: codex_core_skills::SkillLoadOutcome =
+                    (*turn_context.turn_skills.outcome).clone();
+                let disabled_names = ["job-manager"];
+                let to_disable: Vec<_> = filtered
+                    .skills
+                    .iter()
+                    .filter(|s| disabled_names.contains(&s.name.as_str()))
+                    .map(|s| s.path_to_skills_md.clone())
+                    .collect();
+                for path in to_disable {
+                    filtered.disabled_paths.insert(path);
+                }
+                Some(filtered)
+            } else {
+                None
+            };
+            let outcome_ref = filtered_outcome
+                .as_ref()
+                .unwrap_or(turn_context.turn_skills.outcome.as_ref());
             let available_skills = build_available_skills(
-                &turn_context.turn_skills.outcome,
+                outcome_ref,
                 default_skill_metadata_budget(turn_context.model_info.context_window),
                 SkillRenderSideEffects::ThreadStart {
                     session_telemetry: &self.services.session_telemetry,

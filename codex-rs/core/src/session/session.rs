@@ -66,6 +66,12 @@ pub(crate) struct Session {
     /// in `Codex::spawn` runs only when this is set, so a sub-agent that
     /// inherits the parent's registry does not start a duplicate firing loop.
     pub(crate) scheduling_is_root: bool,
+    /// Event channel that streams scheduling-related events (e.g. per-line
+    /// monitor output) to the **user-facing** TUI. For root sessions this is
+    /// just our own `tx_event`. For spawned sub-agents this is inherited
+    /// from the parent so events appear in the user's chat, not the
+    /// sub-agent's invisible session.
+    pub(crate) scheduling_event_tx: Sender<Event>,
 }
 
 /// Handle exposed by a session for spawned sub-agents to inherit, so the whole
@@ -78,6 +84,9 @@ pub(crate) struct ParentSchedulingHandle {
     pub(crate) monitor_runtime: Option<Arc<crate::scheduling_runtime::MonitorRuntime>>,
     pub(crate) loop_runtime: Option<Arc<crate::scheduling_runtime::LoopRuntime>>,
     pub(crate) submission_tx: Sender<Submission>,
+    /// Root session's event channel — sub-agents inherit this so monitor
+    /// streaming events surface in the user-facing chat.
+    pub(crate) scheduling_event_tx: Sender<Event>,
 }
 
 #[derive(Clone)]
@@ -399,7 +408,15 @@ impl Session {
             monitor_runtime: self.monitor_runtime.clone(),
             loop_runtime: self.loop_runtime.clone(),
             submission_tx: self.submission_tx.clone(),
+            scheduling_event_tx: self.scheduling_event_tx.clone(),
         }
+    }
+
+    /// Event channel for scheduling streaming events (monitor lines, etc.).
+    /// Always resolves to the user-facing root session so the TUI sees the
+    /// events regardless of which sub-agent triggered them.
+    pub(crate) fn scheduling_event_tx(&self) -> Sender<Event> {
+        self.scheduling_event_tx.clone()
     }
 
     /// Returns the Monitor runtime when scheduling is enabled.
@@ -972,13 +989,20 @@ impl Session {
             // registries + root submission tx. Jobs and monitors registered by
             // this sub-agent then outlive the sub-agent and fire into the
             // root user-facing session. Root sessions (no handle) create fresh.
-            let (cron_registry, monitor_runtime, loop_runtime, effective_submission_tx, is_root) =
-                match parent_scheduling {
+            let (
+                cron_registry,
+                monitor_runtime,
+                loop_runtime,
+                effective_submission_tx,
+                effective_scheduling_event_tx,
+                is_root,
+            ) = match parent_scheduling {
                     Some(handle) => (
                         handle.cron_registry,
                         handle.monitor_runtime,
                         handle.loop_runtime,
                         handle.submission_tx,
+                        handle.scheduling_event_tx,
                         false,
                     ),
                     None => {
@@ -997,7 +1021,7 @@ impl Session {
                         } else {
                             None
                         };
-                        (cron, mon, lp, submission_tx, true)
+                        (cron, mon, lp, submission_tx, tx_event.clone(), true)
                     }
                 };
             let sess = Arc::new(Session {
@@ -1025,6 +1049,7 @@ impl Session {
                 loop_runtime,
                 submission_tx: effective_submission_tx,
                 scheduling_is_root: is_root,
+                scheduling_event_tx: effective_scheduling_event_tx,
             });
             if let Some(network_policy_decider_session) = network_policy_decider_session {
                 let mut guard = network_policy_decider_session.write().await;

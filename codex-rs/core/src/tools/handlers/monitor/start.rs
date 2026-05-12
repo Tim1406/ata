@@ -212,7 +212,11 @@ async fn emit_line(
             line: line.to_string(),
         }),
     };
-    session.send_event_raw(event).await;
+    // Route to the **root** session's event channel so output appears in the
+    // user-facing chat instead of an invisible sub-agent's session. The
+    // event is marked non-persisted in `rollout::policy`, so we deliver it
+    // directly via the channel rather than going through `send_event_raw`.
+    let _ = session.scheduling_event_tx().send(event).await;
 }
 
 async fn emit_terminate_summary(

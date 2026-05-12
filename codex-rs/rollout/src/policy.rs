@@ -180,6 +180,7 @@ fn event_msg_persistence_mode(ev: &EventMsg) -> Option<EventPersistenceMode> {
         | EventMsg::AppendDocumentSection(_)
         | EventMsg::AddDocumentSection(_)
         | EventMsg::PatchDocumentSection(_)
-        | EventMsg::SchedulingTasksSnapshot(_) => None,
+        | EventMsg::SchedulingTasksSnapshot(_)
+        | EventMsg::SchedulingMonitorOutputDelta(_) => None,
     }
 }

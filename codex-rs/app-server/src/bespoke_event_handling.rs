@@ -1287,6 +1287,18 @@ pub(crate) async fn apply_bespoke_event_handling(
                 ))
                 .await;
         }
+        // ATA scheduling: forward per-line monitor output to the TUI without
+        // ever feeding it back to the LLM. Ephemeral.
+        EventMsg::SchedulingMonitorOutputDelta(event) => {
+            outgoing
+                .send_server_notification(ServerNotification::SchedulingMonitorOutputDelta(
+                    codex_app_server_protocol::SchedulingMonitorOutputDeltaNotification {
+                        thread_id: conversation_id.to_string(),
+                        event,
+                    },
+                ))
+                .await;
+        }
 
         _ => {}
     }

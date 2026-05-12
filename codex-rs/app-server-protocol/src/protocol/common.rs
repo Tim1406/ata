@@ -1521,6 +1521,11 @@ server_notification_definitions! {
     // ATA scheduling: snapshot response to `Op::ListSchedulingTasks` used by
     // the `/scheduling` TUI panel.
     SchedulingTasksSnapshot => "scheduling/tasks/snapshot" (v2::SchedulingTasksSnapshotNotification),
+    // ATA scheduling: per-line streamed output from a running monitor.
+    // Ephemeral — the TUI renders these for the user only; the LLM does not
+    // see them. Replaces the previous design of injecting each line as a
+    // user message into the conversation.
+    SchedulingMonitorOutputDelta => "scheduling/monitor/outputDelta" (v2::SchedulingMonitorOutputDeltaNotification),
 }
 
 client_notification_definitions! {

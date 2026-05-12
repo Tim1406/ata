@@ -6594,6 +6594,9 @@ impl ChatWidget {
             ServerNotification::SchedulingTasksSnapshot(notification) => {
                 self.on_scheduling_tasks_snapshot(notification.event);
             }
+            ServerNotification::SchedulingMonitorOutputDelta(notification) => {
+                self.on_scheduling_monitor_output_delta(notification.event);
+            }
         }
     }
 
@@ -8711,6 +8714,26 @@ impl ChatWidget {
         snapshot: codex_protocol::protocol::SchedulingTasksSnapshotEvent,
     ) {
         self.bottom_pane.notify_scheduling_snapshot(snapshot);
+    }
+
+    pub(crate) fn on_scheduling_monitor_output_delta(
+        &mut self,
+        event: codex_protocol::protocol::SchedulingMonitorOutputDeltaEvent,
+    ) {
+        // v1: render each line as an info-style chat cell. The line is
+        // ephemeral (not persisted to rollouts, not fed to the LLM) — it's
+        // only here for the user to watch.
+        let short_id: String = event.task_id.chars().take(6).collect();
+        let tag = if event.stream == "stderr" {
+            "err"
+        } else {
+            "out"
+        };
+        let line = event.line.trim_end_matches('\n');
+        if line.is_empty() {
+            return;
+        }
+        self.add_info_message(format!("[m {short_id} {tag}] {line}"), None);
     }
 
     fn approval_preset_actions(

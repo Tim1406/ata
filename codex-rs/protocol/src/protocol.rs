@@ -1436,6 +1436,13 @@ pub enum EventMsg {
     /// to render a live inspection view.
     SchedulingTasksSnapshot(SchedulingTasksSnapshotEvent),
 
+    /// ATA: one streamed line of output from a running monitor. Ephemeral —
+    /// not persisted to rollouts, not fed back to the LLM. Replaces the
+    /// previous design of injecting each line as `Op::UserInput`, which
+    /// flooded the model's context. The TUI renders this for the user only;
+    /// the agent receives a single summary on monitor termination instead.
+    SchedulingMonitorOutputDelta(SchedulingMonitorOutputDeltaEvent),
+
     /// Notification that the agent is shutting down.
     ShutdownComplete,
 
@@ -3759,6 +3766,17 @@ pub struct SchedulingLoopRow {
     pub last_iter_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_wakeup_at: Option<String>,
+}
+
+/// ATA: a single streamed line from a running monitor command. The `stream`
+/// field is `"stdout"` or `"stderr"`. Emitted per-line for live TUI display.
+/// Not persisted to rollouts and never fed back to the LLM — see
+/// [`EventMsg::SchedulingMonitorOutputDelta`].
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS)]
+pub struct SchedulingMonitorOutputDeltaEvent {
+    pub task_id: String,
+    pub stream: String,
+    pub line: String,
 }
 
 /// ATA: response payload for [`Op::ListSchedulingTasks`]. Always non-null —

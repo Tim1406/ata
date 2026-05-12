@@ -1,16 +1,23 @@
 use chrono::Utc;
+use codex_protocol::protocol::Event;
+use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::Op;
+use codex_protocol::protocol::SchedulingMonitorOutputDeltaEvent;
 use codex_protocol::protocol::Submission;
 use codex_protocol::user_input::UserInput;
 use codex_scheduling::MonitorTask;
 use codex_scheduling::TaskId;
 use codex_scheduling::TaskStatus;
 use codex_tools::ToolName;
+use std::collections::VecDeque;
 use std::sync::Arc;
+use std::sync::Mutex;
 use tokio::io::AsyncBufReadExt;
 use tokio::io::BufReader;
 use tokio::process::Command;
 use uuid::Uuid;
+
+use crate::session::session::Session;
 
 use crate::function_tool::FunctionCallError;
 use crate::scheduling_runtime::MonitorRuntime;
@@ -69,13 +76,22 @@ impl ToolHandler for MonitorStartHandler {
         let task_id = runtime.registry.insert(task);
 
         let tx_sub = session.submission_tx();
+        let session_for_task = session.clone();
         let registry = runtime.registry.clone();
         let runtime_for_task = runtime.clone();
         let task_id_for_task = task_id.clone();
         let command = args.command;
 
         let join_handle = tokio::spawn(async move {
-            run_monitor(task_id_for_task, command, registry, runtime_for_task, tx_sub).await;
+            run_monitor(
+                task_id_for_task,
+                command,
+                registry,
+                runtime_for_task,
+                tx_sub,
+                session_for_task,
+            )
+            .await;
         });
         runtime.store_handle(task_id.clone(), join_handle.abort_handle());
 
@@ -91,12 +107,18 @@ impl ToolHandler for MonitorStartHandler {
     }
 }
 
+/// Last N lines we retain to include as a tail in the agent-visible summary
+/// emitted when the monitor terminates. Bounded so a runaway monitor can't
+/// pin memory.
+const MONITOR_TAIL_LINES: usize = 20;
+
 async fn run_monitor(
     task_id: TaskId,
     command: String,
     registry: Arc<codex_scheduling::MonitorRegistry>,
     _runtime: Arc<MonitorRuntime>,
     tx_sub: async_channel::Sender<Submission>,
+    session: Arc<Session>,
 ) {
     let mut child = match Command::new("sh")
         .arg("-c")
@@ -109,6 +131,14 @@ async fn run_monitor(
         Err(err) => {
             registry.mark_terminal(&task_id, TaskStatus::Failed, Utc::now());
             tracing::warn!("monitor_start failed to spawn `{command}`: {err}");
+            emit_terminate_summary(
+                &task_id,
+                &command,
+                TaskStatus::Failed,
+                /*tail*/ Vec::new(),
+                &tx_sub,
+            )
+            .await;
             return;
         }
     };
@@ -119,36 +149,53 @@ async fn run_monitor(
         Some(s) => s,
         None => {
             registry.mark_terminal(&task_id, TaskStatus::Failed, Utc::now());
+            emit_terminate_summary(
+                &task_id,
+                &command,
+                TaskStatus::Failed,
+                Vec::new(),
+                &tx_sub,
+            )
+            .await;
             return;
         }
     };
     let stderr = child.stderr.take();
 
+    // Shared ring buffer of the last MONITOR_TAIL_LINES lines (stdout +
+    // stderr interleaved). Used solely to build the terminate summary.
+    let tail: Arc<Mutex<VecDeque<String>>> =
+        Arc::new(Mutex::new(VecDeque::with_capacity(MONITOR_TAIL_LINES)));
+
     let mut stdout_reader = BufReader::new(stdout).lines();
 
-    // Drain stderr in parallel into the same log stream by prefixing each line.
-    if let Some(stderr) = stderr {
+    let stderr_handle = if let Some(stderr) = stderr {
         let registry_for_stderr = registry.clone();
         let task_id_for_stderr = task_id.clone();
-        let tx_sub_for_stderr = tx_sub.clone();
-        tokio::spawn(async move {
+        let session_for_stderr = session.clone();
+        let tail_for_stderr = tail.clone();
+        Some(tokio::spawn(async move {
             let mut reader = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = reader.next_line().await {
                 emit_line(
                     &task_id_for_stderr,
-                    &format!("[stderr] {line}"),
+                    "stderr",
+                    &line,
                     &registry_for_stderr,
-                    &tx_sub_for_stderr,
+                    &session_for_stderr,
+                    &tail_for_stderr,
                 )
                 .await;
             }
-        });
-    }
+        }))
+    } else {
+        None
+    };
 
     loop {
         match stdout_reader.next_line().await {
             Ok(Some(line)) => {
-                emit_line(&task_id, &line, &registry, &tx_sub).await;
+                emit_line(&task_id, "stdout", &line, &registry, &session, &tail).await;
             }
             Ok(None) => break,
             Err(err) => {
@@ -158,24 +205,76 @@ async fn run_monitor(
         }
     }
 
+    // Make sure stderr drainer also finishes before we summarize.
+    if let Some(h) = stderr_handle {
+        let _ = h.await;
+    }
+
     let status = match child.wait().await {
         Ok(status) if status.success() => TaskStatus::Completed,
         Ok(_) => TaskStatus::Failed,
         Err(_) => TaskStatus::Failed,
     };
     registry.mark_terminal(&task_id, status, Utc::now());
+
+    let tail_snapshot: Vec<String> = tail
+        .lock()
+        .map(|t| t.iter().cloned().collect())
+        .unwrap_or_default();
+    emit_terminate_summary(&task_id, &command, status, tail_snapshot, &tx_sub).await;
 }
 
 async fn emit_line(
     task_id: &TaskId,
+    stream: &str,
     line: &str,
     registry: &Arc<codex_scheduling::MonitorRegistry>,
-    tx_sub: &async_channel::Sender<Submission>,
+    session: &Arc<Session>,
+    tail: &Arc<Mutex<VecDeque<String>>>,
 ) {
     registry.record_line(task_id);
+
+    if let Ok(mut buf) = tail.lock() {
+        if buf.len() == MONITOR_TAIL_LINES {
+            buf.pop_front();
+        }
+        buf.push_back(format!("[{stream}] {line}"));
+    }
+
+    let event = Event {
+        id: format!("monitor-{}", Uuid::now_v7()),
+        msg: EventMsg::SchedulingMonitorOutputDelta(SchedulingMonitorOutputDeltaEvent {
+            task_id: task_id.to_string(),
+            stream: stream.to_string(),
+            line: line.to_string(),
+        }),
+    };
+    session.send_event_raw(event).await;
+}
+
+async fn emit_terminate_summary(
+    task_id: &TaskId,
+    command: &str,
+    status: TaskStatus,
+    tail: Vec<String>,
+    tx_sub: &async_channel::Sender<Submission>,
+) {
+    let status_text = match status {
+        TaskStatus::Completed => "completed",
+        TaskStatus::Failed => "failed",
+        _ => "ended",
+    };
+    let mut body = format!("[monitor {task_id}] `{command}` {status_text}.");
+    if !tail.is_empty() {
+        body.push_str("\nLast output:\n");
+        for line in tail {
+            body.push_str(&line);
+            body.push('\n');
+        }
+    }
     let op = Op::UserInput {
         items: vec![UserInput::Text {
-            text: format!("[monitor {task_id}] {line}"),
+            text: body,
             text_elements: Vec::new(),
         }],
         environments: None,

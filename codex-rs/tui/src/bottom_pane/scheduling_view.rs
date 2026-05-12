@@ -13,16 +13,25 @@ use ratatui::style::Stylize;
 use ratatui::text::Line;
 use ratatui::widgets::Block;
 use ratatui::widgets::Widget;
+use std::cell::Cell;
+use std::time::Duration;
+use std::time::Instant;
 
+use crate::app_command::AppCommand;
+use crate::app_event::AppEvent;
+use crate::app_event_sender::AppEventSender;
 use crate::key_hint;
 use crate::render::Insets;
 use crate::render::RectExt as _;
 use crate::render::renderable::ColumnRenderable;
 use crate::render::renderable::Renderable;
 use crate::style::user_message_style;
+use crate::tui::FrameRequester;
 
 use super::CancellationEvent;
 use super::bottom_pane_view::BottomPaneView;
+
+const REFRESH_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Phase 3, Slice 1b: scheduling-inspection panel backed by a real snapshot.
 ///
@@ -35,6 +44,17 @@ pub(crate) struct SchedulingView {
     complete: bool,
     snapshot: Option<SchedulingTasksSnapshotEvent>,
     footer_hint: Line<'static>,
+    /// Set when the view is mounted by the chatwidget; absent in unit tests
+    /// that bypass the host (no auto-refresh in that case).
+    auto_refresh: Option<AutoRefresh>,
+}
+
+struct AutoRefresh {
+    app_event_tx: AppEventSender,
+    frame_requester: FrameRequester,
+    /// When we last sent an `AppCommand::ListSchedulingTasks` op. `Cell`
+    /// because `render` is `&self`.
+    last_dispatch: Cell<Option<Instant>>,
 }
 
 impl SchedulingView {
@@ -43,11 +63,49 @@ impl SchedulingView {
             complete: false,
             snapshot: None,
             footer_hint: scheduling_popup_hint_line(),
+            auto_refresh: None,
         }
+    }
+
+    /// Enable 1-second auto-refresh while the panel is visible. The host
+    /// chatwidget should call this right after constructing the view so the
+    /// snapshot stays live; tests omit it.
+    pub(crate) fn with_auto_refresh(
+        mut self,
+        app_event_tx: AppEventSender,
+        frame_requester: FrameRequester,
+    ) -> Self {
+        self.auto_refresh = Some(AutoRefresh {
+            app_event_tx,
+            frame_requester,
+            last_dispatch: Cell::new(None),
+        });
+        self
     }
 
     fn set_snapshot(&mut self, snapshot: SchedulingTasksSnapshotEvent) {
         self.snapshot = Some(snapshot);
+    }
+
+    /// Send a new snapshot request if we have an auto-refresh handle and the
+    /// last dispatch was at least `REFRESH_INTERVAL` ago. Always schedules
+    /// the next render so we keep ticking while visible.
+    fn tick_auto_refresh(&self) {
+        let Some(refresh) = &self.auto_refresh else {
+            return;
+        };
+        let now = Instant::now();
+        let should_dispatch = match refresh.last_dispatch.get() {
+            Some(prev) => now.duration_since(prev) >= REFRESH_INTERVAL,
+            None => true,
+        };
+        if should_dispatch {
+            refresh.last_dispatch.set(Some(now));
+            refresh
+                .app_event_tx
+                .send(AppEvent::CodexOp(AppCommand::ListSchedulingTasks));
+        }
+        refresh.frame_requester.schedule_frame_in(REFRESH_INTERVAL);
     }
 
     fn header(&self) -> Box<dyn Renderable> {
@@ -56,6 +114,15 @@ impl SchedulingView {
         header.push(Line::from(
             "Active cron jobs, monitors, and loops for this thread.".dim(),
         ));
+        // Heartbeat row so the user can see auto-refresh is alive even when
+        // no row data has changed yet.
+        if let Some(refresh) = &self.auto_refresh {
+            let stamp = match refresh.last_dispatch.get() {
+                Some(_) => chrono::Local::now().format("%H:%M:%S").to_string(),
+                None => "—".to_string(),
+            };
+            header.push(Line::from(format!("Updated: {stamp}").dim()));
+        }
         Box::new(header)
     }
 
@@ -145,6 +212,8 @@ impl Renderable for SchedulingView {
         if area.height == 0 || area.width == 0 {
             return;
         }
+        // Drive periodic snapshot fetches while the view is on screen.
+        self.tick_auto_refresh();
 
         let [content_area, footer_area] =
             Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);

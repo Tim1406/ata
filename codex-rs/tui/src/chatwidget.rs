@@ -8701,10 +8701,12 @@ impl ChatWidget {
             );
             return;
         }
-        let view = crate::bottom_pane::SchedulingView::new();
+        let view = crate::bottom_pane::SchedulingView::new()
+            .with_auto_refresh(self.app_event_tx.clone(), self.frame_requester.clone());
         self.bottom_pane.show_view(Box::new(view));
         // Kick off the snapshot fetch. The reply arrives as a
-        // `ServerNotification::SchedulingTasksSnapshot`.
+        // `ServerNotification::SchedulingTasksSnapshot`. The view's
+        // auto-refresh keeps subsequent requests flowing every second.
         self.app_event_tx
             .send(crate::app_event::AppEvent::CodexOp(AppCommand::ListSchedulingTasks));
     }

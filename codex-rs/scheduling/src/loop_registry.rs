@@ -69,7 +69,11 @@ impl LoopRegistry {
         if let Some(task) = loops.get_mut(id) {
             task.last_iter_at = Some(fired_at);
             task.iteration_count = task.iteration_count.saturating_add(1);
-            task.status = TaskStatus::Running;
+            // Return to `Pending` between firings so `/scheduling` reads as
+            // "waiting for next interval tick" rather than stuck on `Running`
+            // forever. Mirrors the cron registry fix. Terminal transitions
+            // (Completed / Killed) come from `mark_terminal` via loop_stop.
+            task.status = TaskStatus::Pending;
         }
     }
 
@@ -110,7 +114,10 @@ mod tests {
         let task = reg.list().into_iter().find(|t| t.id == id).unwrap();
         assert_eq!(task.iteration_count, 2);
         assert_eq!(task.last_iter_at, Some(at(200)));
-        assert_eq!(task.status, TaskStatus::Running);
+        // Between iterations the loop returns to Pending ("waiting for next
+        // interval tick"); a terminal transition only happens via
+        // mark_terminal (loop_stop).
+        assert_eq!(task.status, TaskStatus::Pending);
     }
 
     #[test]

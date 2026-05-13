@@ -49,9 +49,10 @@ impl ToolHandler for CronCreateHandler {
             )
         })?;
 
-        let job = CronJob::new(args.cron_expr, args.prompt).map_err(|err| {
-            FunctionCallError::RespondToModel(format!("cron_create rejected: {err}"))
-        })?;
+        let job = CronJob::new_with_background(args.cron_expr, args.prompt, args.background)
+            .map_err(|err| {
+                FunctionCallError::RespondToModel(format!("cron_create rejected: {err}"))
+            })?;
 
         let now = Utc::now();
         let task_id = registry.insert(job, now);

@@ -70,7 +70,7 @@ impl ToolHandler for MonitorStartHandler {
             )
         })?;
 
-        let task = MonitorTask::new(args.command.clone());
+        let task = MonitorTask::new_with_background(args.command.clone(), args.background);
         let task_id = runtime.registry.insert(task);
 
         let tx_sub = session.submission_tx();
@@ -80,6 +80,7 @@ impl ToolHandler for MonitorStartHandler {
         let task_id_for_task = task_id.clone();
         let command = args.command;
 
+        let background = args.background;
         let join_handle = tokio::spawn(async move {
             run_monitor(
                 task_id_for_task,
@@ -88,6 +89,7 @@ impl ToolHandler for MonitorStartHandler {
                 runtime_for_task,
                 tx_sub,
                 session_for_task,
+                background,
             )
             .await;
         });
@@ -112,6 +114,7 @@ async fn run_monitor(
     _runtime: Arc<MonitorRuntime>,
     tx_sub: async_channel::Sender<Submission>,
     session: Arc<Session>,
+    background: bool,
 ) {
     let mut child = match Command::new("sh")
         .arg("-c")
@@ -158,6 +161,7 @@ async fn run_monitor(
                     &line,
                     &registry_for_stderr,
                     &session_for_stderr,
+                    background,
                 )
                 .await;
             }
@@ -169,7 +173,7 @@ async fn run_monitor(
     loop {
         match stdout_reader.next_line().await {
             Ok(Some(line)) => {
-                emit_line(&task_id, "stdout", &line, &registry, &session).await;
+                emit_line(&task_id, "stdout", &line, &registry, &session, background).await;
             }
             Ok(None) => break,
             Err(err) => {
@@ -200,9 +204,16 @@ async fn emit_line(
     line: &str,
     registry: &Arc<codex_scheduling::MonitorRegistry>,
     session: &Arc<Session>,
+    background: bool,
 ) {
+    // Always record the line so the `/scheduling` panel's `lines N` counter
+    // climbs and the terminate-summary tail still has data. Only the
+    // user-facing chat cell is gated by `background`.
     registry.record_line(task_id);
     registry.record_tail_line(task_id, format!("[{stream}] {line}"));
+    if background {
+        return;
+    }
 
     let event = Event {
         id: format!("monitor-{}", Uuid::now_v7()),

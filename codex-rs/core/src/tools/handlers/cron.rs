@@ -20,6 +20,16 @@ pub use list::CronListHandler;
 struct CronCreateArgs {
     cron_expr: String,
     prompt: String,
+    /// Optional Slice 5 toggle. When omitted (default) or `true`, the cron
+    /// fires silently — the agent's natural-language reply is hidden from
+    /// chat so periodic crons don't flood it. Tool outputs still render.
+    /// Set `false` for verbose diagnostic crons where you want every reply.
+    #[serde(default = "default_background")]
+    background: bool,
+}
+
+fn default_background() -> bool {
+    true
 }
 
 #[derive(Debug, Deserialize)]

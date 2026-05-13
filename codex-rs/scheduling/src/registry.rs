@@ -79,7 +79,11 @@ impl CronRegistry {
     ///
     /// Jobs whose expression has no future match (`next_fire_after` returns
     /// `None`) are marked `Completed` so subsequent ticks ignore them.
-    pub fn take_due(&self, now: DateTime<Utc>) -> Vec<(TaskId, String)> {
+    ///
+    /// Each item is `(task_id, prompt, background)` so the engine can encode
+    /// the background flag in the submission id (`cronbg-...` vs `cron-...`)
+    /// for the TUI's chat-cell filter.
+    pub fn take_due(&self, now: DateTime<Utc>) -> Vec<(TaskId, String, bool)> {
         let mut jobs = self.jobs.lock().expect("CronRegistry mutex poisoned");
         let mut fired = Vec::new();
         for (id, job) in jobs.iter_mut() {
@@ -93,7 +97,7 @@ impl CronRegistry {
                 continue;
             };
             if fire_at <= now {
-                fired.push((id.clone(), job.prompt.clone()));
+                fired.push((id.clone(), job.prompt.clone(), job.background));
                 job.last_fired_at = Some(now);
                 job.fire_count = job.fire_count.saturating_add(1);
                 job.next_fire_at = next_fire_after(&job.cron_expr, now);
@@ -178,6 +182,8 @@ mod tests {
         assert_eq!(due.len(), 1);
         assert_eq!(due[0].0, id);
         assert_eq!(due[0].1, "tick");
+        // Cron jobs default to background-mode in this slice.
+        assert!(due[0].2);
         let job = reg.list().into_iter().find(|j| j.id == id).unwrap();
         assert_eq!(job.fire_count, 1);
         assert!(job.last_fired_at.is_some());

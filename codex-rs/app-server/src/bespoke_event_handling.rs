@@ -153,6 +153,14 @@ pub(crate) async fn apply_bespoke_event_handling(
             thread_watch_manager
                 .note_turn_started(&conversation_id.to_string())
                 .await;
+            // ATA scheduling (Slice 5): detect background firings by sub_id
+            // prefix. `event_turn_id` here is actually the originating
+            // submission id; `loopbg__` and `cronbg__` are emitted by the
+            // loop runtime and cron engine when the task was created with
+            // `background: true`. The TUI uses this flag to hide the
+            // user-prompt and agent-reply items for the turn.
+            let is_background = event_turn_id.starts_with("loopbg__")
+                || event_turn_id.starts_with("cronbg__");
             let turn = {
                 let state = thread_state.lock().await;
                 let mut turn = state.active_turn_snapshot().unwrap_or_else(|| Turn {
@@ -164,9 +172,13 @@ pub(crate) async fn apply_bespoke_event_handling(
                     started_at: payload.started_at,
                     completed_at: None,
                     duration_ms: None,
+                    background: None,
                 });
                 turn.items.clear();
                 turn.items_view = TurnItemsView::NotLoaded;
+                if is_background {
+                    turn.background = Some(true);
+                }
                 turn
             };
             let notification = TurnStartedNotification {
@@ -1356,6 +1368,11 @@ async fn emit_turn_completed_with_status(
     turn_completion_metadata: TurnCompletionMetadata,
     outgoing: &ThreadScopedOutgoingMessageSender,
 ) {
+    // Mirror the background detection from `TurnStarted` so completion
+    // notifications carry the flag too (lets the TUI clean up its
+    // background_turn_ids set on completion).
+    let is_background = event_turn_id.starts_with("loopbg__")
+        || event_turn_id.starts_with("cronbg__");
     let notification = TurnCompletedNotification {
         thread_id: conversation_id.to_string(),
         turn: Turn {
@@ -1367,6 +1384,7 @@ async fn emit_turn_completed_with_status(
             started_at: turn_completion_metadata.started_at,
             completed_at: turn_completion_metadata.completed_at,
             duration_ms: turn_completion_metadata.duration_ms,
+            background: is_background.then_some(true),
         },
     };
     outgoing

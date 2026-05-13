@@ -68,7 +68,11 @@ impl ToolHandler for LoopStartHandler {
             )
         })?;
 
-        let task = LoopTask::new_fixed(args.prompt.clone(), Duration::from_secs(args.interval_seconds));
+        let task = LoopTask::new_fixed_with_background(
+            args.prompt.clone(),
+            Duration::from_secs(args.interval_seconds),
+            args.background,
+        );
         let task_id = runtime.registry.insert(task);
 
         let tx_sub = session.submission_tx();
@@ -76,9 +80,10 @@ impl ToolHandler for LoopStartHandler {
         let task_id_for_task = task_id.clone();
         let prompt = args.prompt;
         let interval = Duration::from_secs(args.interval_seconds);
+        let background = args.background;
 
         let join_handle = tokio::spawn(async move {
-            run_loop(task_id_for_task, prompt, interval, registry, tx_sub).await;
+            run_loop(task_id_for_task, prompt, interval, background, registry, tx_sub).await;
         });
         runtime.store_handle(task_id.clone(), join_handle.abort_handle());
 
@@ -98,6 +103,7 @@ async fn run_loop(
     task_id: TaskId,
     prompt: String,
     interval: Duration,
+    background: bool,
     registry: Arc<codex_scheduling::LoopRegistry>,
     tx_sub: async_channel::Sender<Submission>,
 ) {
@@ -126,11 +132,14 @@ async fn run_loop(
             final_output_json_schema: None,
             responsesapi_client_metadata: None,
         };
-        // Encode task_id in the submission id so `submission_loop` can drop
-        // already-queued firings after `loop_stop`. `__` is unambiguous
-        // because UUIDs never contain underscores.
+        // Encode task_id + background flag in the submission id.
+        // `loop__` / `loopbg__` lets `submission_loop` drop queued firings
+        // after `loop_stop` (the `__<task_id>__` part) and the TUI hide the
+        // agent's natural-language reply for background firings (the prefix).
+        // `__` is unambiguous because UUIDs never contain underscores.
+        let prefix = if background { "loopbg" } else { "loop" };
         let sub = Submission {
-            id: format!("loop__{task_id}__{}", Uuid::now_v7()),
+            id: format!("{prefix}__{task_id}__{}", Uuid::now_v7()),
             op,
             trace: None,
         };

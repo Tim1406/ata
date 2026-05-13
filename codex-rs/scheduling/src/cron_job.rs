@@ -32,12 +32,30 @@ pub struct CronJob {
     pub last_fired_at: Option<DateTime<Utc>>,
     pub next_fire_at: Option<DateTime<Utc>>,
     pub fire_count: u64,
+    /// When `true` (the new default), firings run silently — the TUI hides
+    /// the agent's natural-language reply so periodic crons don't flood the
+    /// chat. Tool call cells still render. See `LoopTask::background`.
+    #[serde(default = "default_background")]
+    pub background: bool,
+}
+
+fn default_background() -> bool {
+    true
 }
 
 impl CronJob {
-    /// Construct a new pending `CronJob`. Returns `CronError::InvalidExpression`
-    /// if `cron_expr` is not a parseable cron schedule.
+    /// Construct a new pending `CronJob` with background mode enabled (the
+    /// new default). Returns `CronError::InvalidExpression` if `cron_expr`
+    /// is not a parseable cron schedule.
     pub fn new(cron_expr: String, prompt: String) -> Result<Self, CronError> {
+        Self::new_with_background(cron_expr, prompt, true)
+    }
+
+    pub fn new_with_background(
+        cron_expr: String,
+        prompt: String,
+        background: bool,
+    ) -> Result<Self, CronError> {
         cron::Schedule::from_str(&cron_expr)
             .map_err(|e| CronError::InvalidExpression(e.to_string()))?;
         Ok(Self {
@@ -49,6 +67,7 @@ impl CronJob {
             last_fired_at: None,
             next_fire_at: None,
             fire_count: 0,
+            background,
         })
     }
 }

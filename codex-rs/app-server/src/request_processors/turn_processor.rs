@@ -508,6 +508,9 @@ impl TurnRequestProcessor {
             started_at: None,
             completed_at: None,
             duration_ms: None,
+            // User-driven `turn/start` requests are never scheduling
+            // background firings — those come from the cron/loop engines.
+            background: None,
         };
 
         Ok(TurnStartResponse { turn })
@@ -827,6 +830,7 @@ impl TurnRequestProcessor {
             started_at: None,
             completed_at: None,
             duration_ms: None,
+            background: None,
         }
     }
 

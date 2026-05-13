@@ -826,9 +826,14 @@ pub async fn review(
 
 /// Returns true when a queued submission belongs to a loop that has been
 /// stopped (terminal status) since it was enqueued. Submission ids for loop
-/// firings are `loop__<task_id>__<random>`; everything else is non-loop.
+/// firings are `loop__<task_id>__<random>` (visible mode) or
+/// `loopbg__<task_id>__<random>` (background mode); everything else is
+/// non-loop and never stale.
 fn loop_submission_is_stale(sess: &Session, sub_id: &str) -> bool {
-    let Some(rest) = sub_id.strip_prefix("loop__") else {
+    let rest = sub_id
+        .strip_prefix("loopbg__")
+        .or_else(|| sub_id.strip_prefix("loop__"));
+    let Some(rest) = rest else {
         return false;
     };
     let Some((task_id_str, _)) = rest.split_once("__") else {

@@ -21,6 +21,17 @@ pub use wait::MonitorWaitHandler;
 #[serde(rename_all = "snake_case")]
 struct MonitorStartArgs {
     command: String,
+    /// Optional Slice 5 toggle. When omitted (default) or `true`, per-line
+    /// stdout chat cells are suppressed — the user sees the running
+    /// monitor's existence and line count in `/scheduling` but not every
+    /// streamed line. Set `false` for live tail-style monitors where you
+    /// want the per-line stream.
+    #[serde(default = "default_background")]
+    background: bool,
+}
+
+fn default_background() -> bool {
+    true
 }
 
 #[derive(Debug, Deserialize)]

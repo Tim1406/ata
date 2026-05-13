@@ -22,10 +22,24 @@ pub struct MonitorTask {
     pub stopped_at: Option<DateTime<Utc>>,
     /// Count of stdout lines surfaced to the agent so far.
     pub lines_emitted: u64,
+    /// When `true` (the new default), per-line stdout chat cells are
+    /// suppressed in the TUI. The `/scheduling` panel's `lines N` counter
+    /// still climbs and the terminate-summary still fires, so the user can
+    /// see *that* lines came in without seeing each one.
+    #[serde(default = "default_background")]
+    pub background: bool,
+}
+
+fn default_background() -> bool {
+    true
 }
 
 impl MonitorTask {
     pub fn new(command: String) -> Self {
+        Self::new_with_background(command, true)
+    }
+
+    pub fn new_with_background(command: String, background: bool) -> Self {
         Self {
             id: TaskId::new(),
             command,
@@ -34,6 +48,7 @@ impl MonitorTask {
             started_at: None,
             stopped_at: None,
             lines_emitted: 0,
+            background,
         }
     }
 }

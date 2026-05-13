@@ -24,18 +24,32 @@ pub struct LoopTask {
     pub last_iter_at: Option<DateTime<Utc>>,
     pub next_wakeup_at: Option<DateTime<Utc>>,
     pub iteration_count: u64,
+    /// When `true` (the new default), firings run silently — the TUI hides
+    /// the agent's natural-language reply for the turn so polling loops
+    /// don't flood the chat. Tool call cells (bash, etc.) still render so
+    /// the user can see explicit outputs the prompt asked for.
+    #[serde(default = "default_background")]
+    pub background: bool,
+}
+
+fn default_background() -> bool {
+    true
 }
 
 impl LoopTask {
     pub fn new_fixed(prompt: String, interval: Duration) -> Self {
-        Self::new_inner(prompt, Some(interval))
+        Self::new_inner(prompt, Some(interval), true)
     }
 
     pub fn new_dynamic(prompt: String) -> Self {
-        Self::new_inner(prompt, None)
+        Self::new_inner(prompt, None, true)
     }
 
-    fn new_inner(prompt: String, interval: Option<Duration>) -> Self {
+    pub fn new_fixed_with_background(prompt: String, interval: Duration, background: bool) -> Self {
+        Self::new_inner(prompt, Some(interval), background)
+    }
+
+    fn new_inner(prompt: String, interval: Option<Duration>, background: bool) -> Self {
         Self {
             id: TaskId::new(),
             prompt,
@@ -45,6 +59,7 @@ impl LoopTask {
             last_iter_at: None,
             next_wakeup_at: None,
             iteration_count: 0,
+            background,
         }
     }
 

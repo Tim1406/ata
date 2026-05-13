@@ -1173,6 +1173,9 @@ impl From<PendingTurn> for Turn {
             started_at: value.started_at,
             completed_at: value.completed_at,
             duration_ms: value.duration_ms,
+            // Replayed/history turns don't carry the bg flag; only the
+            // live `TurnStarted` path tags it. See Slice 5.
+            background: None,
         }
     }
 }
@@ -1188,6 +1191,7 @@ impl From<&PendingTurn> for Turn {
             started_at: value.started_at,
             completed_at: value.completed_at,
             duration_ms: value.duration_ms,
+            background: None,
         }
     }
 }

@@ -724,7 +724,7 @@ impl Codex {
                         break;
                     }
                     let due = cron_registry.take_due(chrono::Utc::now());
-                    for (_id, prompt) in due {
+                    for (id, prompt, background) in due {
                         let op = Op::UserInput {
                             items: vec![UserInput::Text {
                                 text: prompt,
@@ -734,8 +734,15 @@ impl Codex {
                             final_output_json_schema: None,
                             responsesapi_client_metadata: None,
                         };
+                        // Submission id encodes the task id and background
+                        // flag (Slice 5). The TUI hides the agent's natural-
+                        // language reply for `cronbg__` firings so periodic
+                        // crons don't flood the chat. `cron__` keeps the
+                        // visible-turn behavior for users who explicitly
+                        // opt out of background mode.
+                        let prefix = if background { "cronbg" } else { "cron" };
                         let sub = Submission {
-                            id: format!("cron-{}", Uuid::now_v7()),
+                            id: format!("{prefix}__{id}__{}", Uuid::now_v7()),
                             op,
                             trace: None,
                         };

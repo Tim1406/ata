@@ -20,6 +20,17 @@ pub use stop::LoopStopHandler;
 struct LoopStartArgs {
     prompt: String,
     interval_seconds: u64,
+    /// Optional Slice 5 toggle. When omitted (default) or `true`, the loop
+    /// fires silently — the agent's natural-language reply is hidden so
+    /// polling loops don't flood the chat. Tool outputs (bash echoes, etc.)
+    /// still render so the prompt's intentional alerts come through. Set
+    /// `false` for chatty diagnostic loops where you want every reply.
+    #[serde(default = "default_background")]
+    background: bool,
+}
+
+fn default_background() -> bool {
+    true
 }
 
 #[derive(Debug, Deserialize)]

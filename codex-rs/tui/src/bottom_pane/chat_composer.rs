@@ -413,6 +413,12 @@ pub(crate) struct ChatComposer {
     side_conversation_context_label: Option<String>,
     // Agent label injected into the footer's contextual row when multi-agent mode is active.
     active_agent_label: Option<String>,
+    // ATA scheduling: cached counts of `(cron, monitor, loop)` tasks from the
+    // most recent `SchedulingTasksSnapshot`. `None` while scheduling is off
+    // or before the first snapshot arrives. Refreshed by ChatWidget on every
+    // snapshot it receives (including the panel's 1Hz refresh and the
+    // background poller for the footer indicator).
+    scheduling_counts: Option<(u64, u64, u64)>,
     history_search: Option<HistorySearchSession>,
     submit_keys: Vec<KeyBinding>,
     queue_keys: Vec<KeyBinding>,
@@ -596,6 +602,7 @@ impl ChatComposer {
             status_line_enabled: false,
             side_conversation_context_label: None,
             active_agent_label: None,
+            scheduling_counts: None,
             history_search: None,
             submit_keys: vec![key_hint::plain(KeyCode::Enter)],
             queue_keys: vec![key_hint::plain(KeyCode::Tab)],
@@ -3548,6 +3555,7 @@ impl ChatComposer {
                 reasoning_up: self.footer_reasoning_up_key,
             },
             active_agent_label: self.active_agent_label.clone(),
+            scheduling_counts: self.scheduling_counts,
         }
     }
 
@@ -4112,6 +4120,21 @@ impl ChatComposer {
             return false;
         }
         self.active_agent_label = active_agent_label;
+        true
+    }
+
+    /// ATA scheduling: update the cached `(cron, monitor, loop)` counts shown
+    /// in the passive footer. `None` clears the segment (scheduling disabled
+    /// or first snapshot not yet observed). Returns `true` if the value
+    /// changed so callers can skip redraws when nothing moved.
+    pub(crate) fn set_scheduling_counts(
+        &mut self,
+        counts: Option<(u64, u64, u64)>,
+    ) -> bool {
+        if self.scheduling_counts == counts {
+            return false;
+        }
+        self.scheduling_counts = counts;
         true
     }
 }

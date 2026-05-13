@@ -1816,6 +1816,14 @@ impl BottomPane {
         }
     }
 
+    /// ATA scheduling: refresh the cached counts segment shown in the
+    /// passive footer. Cheap when unchanged.
+    pub(crate) fn set_scheduling_counts(&mut self, counts: Option<(u64, u64, u64)>) {
+        if self.composer.set_scheduling_counts(counts) {
+            self.request_redraw();
+        }
+    }
+
     pub(crate) fn set_side_conversation_context_label(&mut self, label: Option<String>) {
         if self.composer.set_side_conversation_context_label(label) {
             self.request_redraw();

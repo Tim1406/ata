@@ -5215,6 +5215,14 @@ impl ChatWidget {
             .set_connectors_enabled(widget.connectors_enabled());
         widget.refresh_status_surfaces();
 
+        // ATA scheduling (Slice 4): kick off the footer counts loop. The
+        // first snapshot tells us whether scheduling is enabled for this
+        // session; `on_scheduling_tasks_snapshot` then schedules the next
+        // poll 5 seconds later so the segment stays live even with
+        // `/scheduling` closed. When the panel is open it polls at 1Hz
+        // anyway, so the slower background poller is harmless.
+        widget.start_scheduling_footer_poller();
+
         widget
     }
 
@@ -8715,7 +8723,49 @@ impl ChatWidget {
         &mut self,
         snapshot: codex_protocol::protocol::SchedulingTasksSnapshotEvent,
     ) {
+        // Refresh the passive footer's `· N cron · N mon · N loop` segment
+        // from the snapshot, regardless of whether the /scheduling panel is
+        // open. When scheduling is disabled we feed `None` so the segment
+        // disappears entirely. Counts come straight from the snapshot's row
+        // arrays so they always agree with what the panel would render.
+        let counts = if snapshot.scheduling_enabled {
+            Some((
+                snapshot.cron_jobs.len() as u64,
+                snapshot.monitors.len() as u64,
+                snapshot.loops.len() as u64,
+            ))
+        } else {
+            None
+        };
+        self.bottom_pane.set_scheduling_counts(counts);
+        // Schedule the next background poll only when scheduling is on. If
+        // disabled, we stop polling entirely so the channel stays quiet.
+        if snapshot.scheduling_enabled {
+            self.schedule_next_scheduling_footer_poll();
+        }
         self.bottom_pane.notify_scheduling_snapshot(snapshot);
+    }
+
+    /// Fire one `ListSchedulingTasks` immediately so the footer indicator
+    /// learns whether scheduling is enabled for this session. After the
+    /// first snapshot arrives, the steady-state cadence is driven by
+    /// `schedule_next_scheduling_footer_poll`.
+    fn start_scheduling_footer_poller(&self) {
+        self.app_event_tx
+            .send(crate::app_event::AppEvent::CodexOp(AppCommand::ListSchedulingTasks));
+    }
+
+    /// Schedule the next background snapshot fetch ~5 seconds out. The
+    /// `/scheduling` panel still polls at 1 Hz when open, so the slower
+    /// background cadence here is only what runs when the panel is closed.
+    fn schedule_next_scheduling_footer_poll(&self) {
+        let tx = self.app_event_tx.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            tx.send(crate::app_event::AppEvent::CodexOp(
+                AppCommand::ListSchedulingTasks,
+            ));
+        });
     }
 
     pub(crate) fn on_scheduling_monitor_output_delta(

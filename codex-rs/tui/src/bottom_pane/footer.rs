@@ -83,6 +83,12 @@ pub(crate) struct FooterProps {
     /// When both this label and the configured status line are available, they are rendered on the
     /// same row separated by ` · `.
     pub(crate) active_agent_label: Option<String>,
+    /// ATA scheduling: live counts of `(cron, monitor, loop)` tasks for the
+    /// active session. `None` means scheduling is disabled or the first
+    /// snapshot hasn't arrived yet. When `Some` and any count is non-zero,
+    /// the passive footer appends a `· N cron · N mon · N loop` segment so
+    /// users can see active scheduling without opening `/scheduling`.
+    pub(crate) scheduling_counts: Option<(u64, u64, u64)>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -790,7 +796,37 @@ pub(crate) fn passive_footer_status_line(props: &FooterProps) -> Option<Line<'st
         }
     }
 
+    if let Some(segment) = scheduling_counts_segment(props.scheduling_counts) {
+        if let Some(existing) = line.as_mut() {
+            existing.spans.push(" · ".dim());
+            existing.spans.push(segment.dim());
+        } else {
+            line = Some(Line::from(segment).dim());
+        }
+    }
+
     line
+}
+
+/// Compact "N cron · N mon · N loop" segment for the passive footer, with
+/// zeroes hidden. Returns `None` when scheduling is off or every count is
+/// zero so the footer stays uncluttered for users who don't use scheduling.
+fn scheduling_counts_segment(counts: Option<(u64, u64, u64)>) -> Option<String> {
+    let (cron, mon, lp) = counts?;
+    if cron == 0 && mon == 0 && lp == 0 {
+        return None;
+    }
+    let mut parts: Vec<String> = Vec::new();
+    if cron > 0 {
+        parts.push(format!("{cron} cron"));
+    }
+    if mon > 0 {
+        parts.push(format!("{mon} mon"));
+    }
+    if lp > 0 {
+        parts.push(format!("{lp} loop"));
+    }
+    Some(parts.join(" · "))
 }
 
 /// Whether the current footer mode allows contextual information to replace instructional hints.
@@ -1545,6 +1581,7 @@ mod tests {
                 status_line_enabled: false,
                 key_hints: FooterKeyHints::default_bindings(),
                 active_agent_label: None,
+                scheduling_counts: None,
             },
         );
 
@@ -1565,6 +1602,7 @@ mod tests {
                     ..FooterKeyHints::default_bindings()
                 },
                 active_agent_label: None,
+                scheduling_counts: None,
             },
         );
 
@@ -1582,6 +1620,7 @@ mod tests {
                 status_line_enabled: false,
                 key_hints: FooterKeyHints::default_bindings(),
                 active_agent_label: None,
+                scheduling_counts: None,
             },
         );
 
@@ -1599,6 +1638,7 @@ mod tests {
                 status_line_enabled: false,
                 key_hints: FooterKeyHints::default_bindings(),
                 active_agent_label: None,
+                scheduling_counts: None,
             },
         );
 
@@ -1616,6 +1656,7 @@ mod tests {
                 status_line_enabled: false,
                 key_hints: FooterKeyHints::default_bindings(),
                 active_agent_label: None,
+                scheduling_counts: None,
             },
         );
 
@@ -1633,6 +1674,7 @@ mod tests {
                 status_line_enabled: false,
                 key_hints: FooterKeyHints::default_bindings(),
                 active_agent_label: None,
+                scheduling_counts: None,
             },
         );
 
@@ -1650,6 +1692,7 @@ mod tests {
                 status_line_enabled: false,
                 key_hints: FooterKeyHints::default_bindings(),
                 active_agent_label: None,
+                scheduling_counts: None,
             },
         );
 
@@ -1667,6 +1710,7 @@ mod tests {
                 status_line_enabled: false,
                 key_hints: FooterKeyHints::default_bindings(),
                 active_agent_label: None,
+                scheduling_counts: None,
             },
             Some(72),
             /*used_tokens*/ None,
@@ -1686,6 +1730,7 @@ mod tests {
                 status_line_enabled: false,
                 key_hints: FooterKeyHints::default_bindings(),
                 active_agent_label: None,
+                scheduling_counts: None,
             },
             /*percent*/ None,
             Some(123_456),
@@ -1705,6 +1750,7 @@ mod tests {
                 status_line_enabled: false,
                 key_hints: FooterKeyHints::default_bindings(),
                 active_agent_label: None,
+                scheduling_counts: None,
             },
         );
 
@@ -1720,6 +1766,7 @@ mod tests {
             status_line_enabled: false,
             key_hints: FooterKeyHints::default_bindings(),
             active_agent_label: None,
+            scheduling_counts: None,
         };
 
         snapshot_footer_with_mode_indicator(
@@ -1748,6 +1795,7 @@ mod tests {
             status_line_enabled: false,
             key_hints: FooterKeyHints::default_bindings(),
             active_agent_label: None,
+            scheduling_counts: None,
         };
 
         snapshot_footer_with_mode_indicator(
@@ -1769,6 +1817,7 @@ mod tests {
             status_line_enabled: true,
             key_hints: FooterKeyHints::default_bindings(),
             active_agent_label: None,
+            scheduling_counts: None,
         };
 
         snapshot_footer("footer_status_line_overrides_shortcuts", props);
@@ -1785,6 +1834,7 @@ mod tests {
             status_line_enabled: true,
             key_hints: FooterKeyHints::default_bindings(),
             active_agent_label: None,
+            scheduling_counts: None,
         };
 
         snapshot_footer("footer_status_line_yields_to_queue_hint", props);
@@ -1801,6 +1851,7 @@ mod tests {
             status_line_enabled: true,
             key_hints: FooterKeyHints::default_bindings(),
             active_agent_label: None,
+            scheduling_counts: None,
         };
 
         snapshot_footer("footer_status_line_overrides_draft_idle", props);
@@ -1817,6 +1868,7 @@ mod tests {
             status_line_enabled: true,
             key_hints: FooterKeyHints::default_bindings(),
             active_agent_label: None,
+            scheduling_counts: None,
         };
 
         snapshot_footer_with_mode_indicator_and_context(
@@ -1847,6 +1899,7 @@ mod tests {
             status_line_enabled: false,
             key_hints: FooterKeyHints::default_bindings(),
             active_agent_label: None,
+            scheduling_counts: None,
         };
 
         snapshot_footer_with_mode_indicator_and_context(
@@ -1869,6 +1922,7 @@ mod tests {
             status_line_enabled: true,
             key_hints: FooterKeyHints::default_bindings(),
             active_agent_label: None,
+            scheduling_counts: None,
         };
 
         // has status line and no collaboration mode
@@ -1894,6 +1948,7 @@ mod tests {
             status_line_enabled: true,
             key_hints: FooterKeyHints::default_bindings(),
             active_agent_label: None,
+            scheduling_counts: None,
         };
 
         snapshot_footer_with_mode_indicator_and_context(
@@ -1916,6 +1971,7 @@ mod tests {
             status_line_enabled: false,
             key_hints: FooterKeyHints::default_bindings(),
             active_agent_label: Some("Robie [explorer]".to_string()),
+            scheduling_counts: None,
         };
 
         snapshot_footer("footer_active_agent_label", props);
@@ -1932,6 +1988,7 @@ mod tests {
             status_line_enabled: true,
             key_hints: FooterKeyHints::default_bindings(),
             active_agent_label: Some("Robie [explorer]".to_string()),
+            scheduling_counts: None,
         };
 
         snapshot_footer("footer_status_line_with_active_agent_label", props);
@@ -1954,6 +2011,7 @@ mod tests {
             status_line_enabled: true,
             key_hints: FooterKeyHints::default_bindings(),
             active_agent_label: None,
+            scheduling_counts: None,
         };
 
         let screen = render_footer_with_mode_indicator_and_context(

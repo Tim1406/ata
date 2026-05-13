@@ -546,6 +546,13 @@ client_request_definitions! {
         serialization: thread_id(params.thread_id),
         response: v2::SchedulingTasksListResponse,
     },
+    // ATA scheduling: delete one cron/monitor/loop task. Response is empty;
+    // the next `SchedulingTasksSnapshot` notification reflects the removal.
+    SchedulingTaskDelete => "scheduling/tasks/delete" {
+        params: v2::SchedulingTaskDeleteParams,
+        serialization: thread_id(params.thread_id),
+        response: v2::SchedulingTaskDeleteResponse,
+    },
     ThreadShellCommand => "thread/shellCommand" {
         params: v2::ThreadShellCommandParams,
         serialization: thread_id(params.thread_id),

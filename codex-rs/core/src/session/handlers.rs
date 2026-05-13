@@ -166,6 +166,39 @@ pub async fn list_scheduling_tasks(sess: &Session, sub_id: String) {
     .await;
 }
 
+/// ATA: remove a single scheduling task from the registry, aborting it first
+/// if it's still running. Then re-emit a snapshot so the panel reflects the
+/// removal without waiting for its next auto-refresh tick.
+pub async fn delete_scheduling_task(
+    sess: &Session,
+    sub_id: String,
+    task_id: String,
+    kind: codex_protocol::protocol::SchedulingTaskKind,
+) {
+    use codex_protocol::protocol::SchedulingTaskKind;
+    let id = codex_scheduling::TaskId::from(task_id);
+    match kind {
+        SchedulingTaskKind::Cron => {
+            if let Some(reg) = sess.cron_registry() {
+                let _ = reg.remove(&id);
+            }
+        }
+        SchedulingTaskKind::Monitor => {
+            if let Some(rt) = sess.monitor_runtime() {
+                let _ = rt.abort(&id);
+                let _ = rt.registry.remove(&id);
+            }
+        }
+        SchedulingTaskKind::Loop => {
+            if let Some(rt) = sess.loop_runtime() {
+                let _ = rt.abort(&id);
+                let _ = rt.registry.remove(&id);
+            }
+        }
+    }
+    list_scheduling_tasks(sess, sub_id).await;
+}
+
 pub async fn override_turn_context(sess: &Session, sub_id: String, updates: SessionSettingsUpdate) {
     if let Err(err) = sess.update_settings(updates).await {
         sess.send_event_raw(Event {
@@ -833,6 +866,10 @@ pub(super) async fn submission_loop(
                 }
                 Op::ListSchedulingTasks => {
                     list_scheduling_tasks(&sess, sub.id.clone()).await;
+                    false
+                }
+                Op::DeleteSchedulingTask { task_id, kind } => {
+                    delete_scheduling_task(&sess, sub.id.clone(), task_id, kind).await;
                     false
                 }
                 Op::RealtimeConversationStart(params) => {

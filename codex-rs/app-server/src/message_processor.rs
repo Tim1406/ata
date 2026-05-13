@@ -991,6 +991,11 @@ impl MessageProcessor {
                     .scheduling_tasks_list(&request_id, params)
                     .await
             }
+            ClientRequest::SchedulingTaskDelete { params, .. } => {
+                self.thread_processor
+                    .scheduling_task_delete(&request_id, params)
+                    .await
+            }
             ClientRequest::ThreadBackgroundTerminalsClean { params, .. } => {
                 self.thread_processor
                     .thread_background_terminals_clean(&request_id, params)

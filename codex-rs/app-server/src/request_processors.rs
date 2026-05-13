@@ -152,6 +152,8 @@ use codex_app_server_protocol::SortDirection;
 use codex_app_server_protocol::Thread;
 use codex_app_server_protocol::ThreadApproveGuardianDeniedActionParams;
 use codex_app_server_protocol::ThreadApproveGuardianDeniedActionResponse;
+use codex_app_server_protocol::SchedulingTaskDeleteParams;
+use codex_app_server_protocol::SchedulingTaskDeleteResponse;
 use codex_app_server_protocol::SchedulingTasksListParams;
 use codex_app_server_protocol::SchedulingTasksListResponse;
 use codex_app_server_protocol::ThreadArchiveParams;

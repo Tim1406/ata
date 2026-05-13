@@ -1,6 +1,7 @@
 use codex_protocol::protocol::SchedulingCronRow;
 use codex_protocol::protocol::SchedulingLoopRow;
 use codex_protocol::protocol::SchedulingMonitorRow;
+use codex_protocol::protocol::SchedulingTaskKind;
 use codex_protocol::protocol::SchedulingTasksSnapshotEvent;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
@@ -47,6 +48,9 @@ pub(crate) struct SchedulingView {
     /// Set when the view is mounted by the chatwidget; absent in unit tests
     /// that bypass the host (no auto-refresh in that case).
     auto_refresh: Option<AutoRefresh>,
+    /// Index into the flattened row list (cron → monitor → loop). Used by the
+    /// `j`/`k`/arrow keys and the `d` shortcut.
+    selected_index: usize,
 }
 
 struct AutoRefresh {
@@ -64,7 +68,74 @@ impl SchedulingView {
             snapshot: None,
             footer_hint: scheduling_popup_hint_line(),
             auto_refresh: None,
+            selected_index: 0,
         }
+    }
+
+    /// Flatten the snapshot into a `(kind, task_id)` list in display order
+    /// (cron → monitor → loop). Returns an empty vec when the snapshot is
+    /// missing, scheduling is disabled, or there are no rows.
+    fn flat_rows(&self) -> Vec<(SchedulingTaskKind, String)> {
+        let Some(snapshot) = &self.snapshot else {
+            return Vec::new();
+        };
+        if !snapshot.scheduling_enabled {
+            return Vec::new();
+        }
+        let mut rows = Vec::new();
+        for row in &snapshot.cron_jobs {
+            rows.push((SchedulingTaskKind::Cron, row.task_id.clone()));
+        }
+        for row in &snapshot.monitors {
+            rows.push((SchedulingTaskKind::Monitor, row.task_id.clone()));
+        }
+        for row in &snapshot.loops {
+            rows.push((SchedulingTaskKind::Loop, row.task_id.clone()));
+        }
+        rows
+    }
+
+    fn clamped_selected_index(&self) -> usize {
+        let len = self.flat_rows().len();
+        if len == 0 {
+            0
+        } else {
+            self.selected_index.min(len - 1)
+        }
+    }
+
+    fn move_selection(&mut self, delta: isize) {
+        let len = self.flat_rows().len();
+        if len == 0 {
+            self.selected_index = 0;
+            return;
+        }
+        let current = self.clamped_selected_index() as isize;
+        let next = (current + delta).clamp(0, len as isize - 1) as usize;
+        self.selected_index = next;
+    }
+
+    fn delete_selected(&mut self) {
+        let rows = self.flat_rows();
+        if rows.is_empty() {
+            return;
+        }
+        let idx = self.clamped_selected_index();
+        let (kind, task_id) = rows[idx].clone();
+        let Some(refresh) = &self.auto_refresh else {
+            return; // no host wired up (tests)
+        };
+        refresh
+            .app_event_tx
+            .send(AppEvent::CodexOp(AppCommand::DeleteSchedulingTask {
+                task_id,
+                kind,
+            }));
+        // The server emits a fresh snapshot inside the delete handler, but
+        // also reset the auto-refresh stamp so the next render dispatches an
+        // additional list — covers the race where the server snapshot races
+        // the next tick.
+        refresh.last_dispatch.set(None);
     }
 
     /// Enable 1-second auto-refresh while the panel is visible. The host
@@ -142,15 +213,21 @@ impl SchedulingView {
             return Box::new(body);
         }
 
+        // Index that increments across cron → monitor → loop so the
+        // selection marker tracks the same flat order as `flat_rows()`.
+        let selected = self.clamped_selected_index();
+        let mut idx: usize = 0;
+
         body.push(Line::from(""));
         body.push(Line::from(format!("Cron ({})", snapshot.cron_jobs.len()).bold()));
         if snapshot.cron_jobs.is_empty() {
             body.push(Line::from("  (none)".dim()));
         } else {
             for row in &snapshot.cron_jobs {
-                for line in cron_row_lines(row) {
+                for line in cron_row_lines(row, idx == selected) {
                     body.push(line);
                 }
+                idx += 1;
             }
         }
 
@@ -160,9 +237,10 @@ impl SchedulingView {
             body.push(Line::from("  (none)".dim()));
         } else {
             for row in &snapshot.monitors {
-                for line in monitor_row_lines(row) {
+                for line in monitor_row_lines(row, idx == selected) {
                     body.push(line);
                 }
+                idx += 1;
             }
         }
 
@@ -172,9 +250,10 @@ impl SchedulingView {
             body.push(Line::from("  (none)".dim()));
         } else {
             for row in &snapshot.loops {
-                for line in loop_row_lines(row) {
+                for line in loop_row_lines(row, idx == selected) {
                     body.push(line);
                 }
+                idx += 1;
             }
         }
 
@@ -194,6 +273,34 @@ impl BottomPaneView for SchedulingView {
                 ..
             } => {
                 self.complete = true;
+            }
+            KeyEvent {
+                code: KeyCode::Down,
+                ..
+            }
+            | KeyEvent {
+                code: KeyCode::Char('j'),
+                modifiers: KeyModifiers::NONE,
+                ..
+            } => {
+                self.move_selection(1);
+            }
+            KeyEvent {
+                code: KeyCode::Up, ..
+            }
+            | KeyEvent {
+                code: KeyCode::Char('k'),
+                modifiers: KeyModifiers::NONE,
+                ..
+            } => {
+                self.move_selection(-1);
+            }
+            KeyEvent {
+                code: KeyCode::Char('d'),
+                modifiers: KeyModifiers::NONE,
+                ..
+            } => {
+                self.delete_selected();
             }
             _ => {}
         }
@@ -264,22 +371,30 @@ impl Renderable for SchedulingView {
 
 fn scheduling_popup_hint_line() -> Line<'static> {
     Line::from(vec![
-        "Press ".into(),
+        key_hint::plain(KeyCode::Up).into(),
+        "/".into(),
+        key_hint::plain(KeyCode::Down).into(),
+        " select · ".into(),
+        key_hint::plain(KeyCode::Char('d')).into(),
+        " delete · ".into(),
         key_hint::plain(KeyCode::Esc).into(),
-        " or ".into(),
-        key_hint::plain(KeyCode::Enter).into(),
-        " to close".into(),
+        " close".into(),
     ])
 }
 
 /// Renders one task as two lines: a compact header (`id status prompt`) and
 /// an indented details line (`counters · timing`). Keeps both inside typical
 /// terminal widths so nothing is hidden on the right.
-fn cron_row_lines(row: &SchedulingCronRow) -> [Line<'static>; 2] {
+fn row_marker(selected: bool) -> &'static str {
+    if selected { "▸ " } else { "  " }
+}
+
+fn cron_row_lines(row: &SchedulingCronRow, selected: bool) -> [Line<'static>; 2] {
     let short_id = short_task_id(&row.task_id);
     let prompt = truncate(&row.prompt, 50);
     let head = Line::from(format!(
-        "  {short_id}  [{}]  {prompt}",
+        "{}{short_id}  [{}]  {prompt}",
+        row_marker(selected),
         pad_status(&row.status)
     ));
     let next = row
@@ -293,11 +408,12 @@ fn cron_row_lines(row: &SchedulingCronRow) -> [Line<'static>; 2] {
     [head, details]
 }
 
-fn monitor_row_lines(row: &SchedulingMonitorRow) -> [Line<'static>; 2] {
+fn monitor_row_lines(row: &SchedulingMonitorRow, selected: bool) -> [Line<'static>; 2] {
     let short_id = short_task_id(&row.task_id);
     let cmd = truncate(&row.command, 60);
     let head = Line::from(format!(
-        "  {short_id}  [{}]  {cmd}",
+        "{}{short_id}  [{}]  {cmd}",
+        row_marker(selected),
         pad_status(&row.status)
     ));
     let details = Line::from(
@@ -306,11 +422,12 @@ fn monitor_row_lines(row: &SchedulingMonitorRow) -> [Line<'static>; 2] {
     [head, details]
 }
 
-fn loop_row_lines(row: &SchedulingLoopRow) -> [Line<'static>; 2] {
+fn loop_row_lines(row: &SchedulingLoopRow, selected: bool) -> [Line<'static>; 2] {
     let short_id = short_task_id(&row.task_id);
     let prompt = truncate(&row.prompt, 50);
     let head = Line::from(format!(
-        "  {short_id}  [{}]  {prompt}",
+        "{}{short_id}  [{}]  {prompt}",
+        row_marker(selected),
         pad_status(&row.status)
     ));
     let interval = match row.interval_seconds {

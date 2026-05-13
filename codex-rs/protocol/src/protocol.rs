@@ -769,6 +769,25 @@ pub enum Op {
     /// responds with [`EventMsg::SchedulingTasksSnapshot`]. No-op when
     /// `Feature::Scheduling` is disabled (server emits an empty snapshot).
     ListSchedulingTasks,
+
+    /// ATA: remove a scheduling task from the registry, aborting it first
+    /// if it's still running. Used by the `/scheduling` TUI panel's `d`
+    /// shortcut to delete a row. No-op when `Feature::Scheduling` is
+    /// disabled.
+    DeleteSchedulingTask {
+        task_id: String,
+        kind: SchedulingTaskKind,
+    },
+}
+
+/// ATA: discriminator for the three scheduling task families, used on the
+/// wire by [`Op::DeleteSchedulingTask`] and any future per-kind operations.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum SchedulingTaskKind {
+    Cron,
+    Monitor,
+    Loop,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, JsonSchema)]
@@ -871,6 +890,7 @@ impl Op {
             Self::Shutdown => "shutdown",
             Self::RunUserShellCommand { .. } => "run_user_shell_command",
             Self::ListSchedulingTasks => "list_scheduling_tasks",
+            Self::DeleteSchedulingTask { .. } => "delete_scheduling_task",
         }
     }
 }

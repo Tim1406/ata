@@ -546,6 +546,16 @@ impl ThreadRequestProcessor {
             .map(|response| Some(response.into()))
     }
 
+    pub(crate) async fn scheduling_task_delete(
+        &self,
+        request_id: &ConnectionRequestId,
+        params: SchedulingTaskDeleteParams,
+    ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
+        self.scheduling_task_delete_inner(request_id, params)
+            .await
+            .map(|response| Some(response.into()))
+    }
+
     pub(crate) async fn thread_background_terminals_clean(
         &self,
         request_id: &ConnectionRequestId,
@@ -1725,6 +1735,28 @@ impl ThreadRequestProcessor {
             .await
             .map_err(|err| internal_error(format!("failed to list scheduling tasks: {err}")))?;
         Ok(SchedulingTasksListResponse {})
+    }
+
+    async fn scheduling_task_delete_inner(
+        &self,
+        request_id: &ConnectionRequestId,
+        params: SchedulingTaskDeleteParams,
+    ) -> Result<SchedulingTaskDeleteResponse, JSONRPCErrorError> {
+        let SchedulingTaskDeleteParams {
+            thread_id,
+            task_id,
+            kind,
+        } = params;
+
+        let (_, thread) = self.load_thread(&thread_id).await?;
+        self.submit_core_op(
+            request_id,
+            thread.as_ref(),
+            Op::DeleteSchedulingTask { task_id, kind },
+        )
+        .await
+        .map_err(|err| internal_error(format!("failed to delete scheduling task: {err}")))?;
+        Ok(SchedulingTaskDeleteResponse {})
     }
 
     async fn thread_background_terminals_clean_inner(

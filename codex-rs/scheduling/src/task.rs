@@ -63,6 +63,18 @@ pub enum TaskStatus {
     Interrupted,
 }
 
+impl TaskStatus {
+    pub fn is_terminal(&self) -> bool {
+        matches!(
+            self,
+            TaskStatus::Completed
+                | TaskStatus::Failed
+                | TaskStatus::Killed
+                | TaskStatus::Interrupted
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

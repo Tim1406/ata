@@ -62,6 +62,15 @@ impl LoopRegistry {
             .is_empty()
     }
 
+    /// Current status of a loop, or `None` if it has been removed.
+    pub fn status(&self, id: &TaskId) -> Option<TaskStatus> {
+        self.loops
+            .lock()
+            .expect("LoopRegistry mutex poisoned")
+            .get(id)
+            .map(|task| task.status)
+    }
+
     /// Record one iteration of a loop. Called by the per-loop tokio task
     /// each time it fires.
     pub fn record_iteration(&self, id: &TaskId, fired_at: DateTime<Utc>) {
@@ -127,6 +136,17 @@ mod tests {
         reg.mark_terminal(&id, TaskStatus::Killed, at(500));
         let task = reg.list().into_iter().find(|t| t.id == id).unwrap();
         assert_eq!(task.status, TaskStatus::Killed);
+    }
+
+    #[test]
+    fn status_returns_none_when_missing_and_tracks_terminal() {
+        let reg = LoopRegistry::new();
+        let unknown = crate::task::TaskId::new();
+        assert!(reg.status(&unknown).is_none());
+        let id = reg.insert(LoopTask::new_fixed("p".into(), Duration::from_secs(10)));
+        assert_eq!(reg.status(&id), Some(TaskStatus::Pending));
+        reg.mark_terminal(&id, TaskStatus::Completed, at(1));
+        assert_eq!(reg.status(&id), Some(TaskStatus::Completed));
     }
 
     #[test]

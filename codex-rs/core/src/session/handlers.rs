@@ -791,6 +791,27 @@ pub async fn review(
     }
 }
 
+/// Returns true when a queued submission belongs to a loop that has been
+/// stopped (terminal status) since it was enqueued. Submission ids for loop
+/// firings are `loop__<task_id>__<random>`; everything else is non-loop.
+fn loop_submission_is_stale(sess: &Session, sub_id: &str) -> bool {
+    let Some(rest) = sub_id.strip_prefix("loop__") else {
+        return false;
+    };
+    let Some((task_id_str, _)) = rest.split_once("__") else {
+        return false;
+    };
+    let Some(runtime) = sess.loop_runtime() else {
+        return false;
+    };
+    let task_id = codex_scheduling::TaskId::from(task_id_str.to_string());
+    match runtime.registry.status(&task_id) {
+        Some(status) => status.is_terminal(),
+        // Loop was removed entirely — treat as stale.
+        None => true,
+    }
+}
+
 pub(super) async fn submission_loop(
     sess: Arc<Session>,
     config: Arc<Config>,
@@ -892,8 +913,15 @@ pub(super) async fn submission_loop(
                 Op::UserInput { .. }
                 | Op::UserInputWithTurnContext { .. }
                 | Op::UserTurn { .. } => {
-                    user_input_or_turn(&sess, sub.id.clone(), sub.op).await;
-                    false
+                    if loop_submission_is_stale(&sess, &sub.id) {
+                        // `loop_stop` already terminated this loop; drop
+                        // submissions that were queued before the abort
+                        // landed so the agent doesn't run extra turns.
+                        false
+                    } else {
+                        user_input_or_turn(&sess, sub.id.clone(), sub.op).await;
+                        false
+                    }
                 }
                 Op::InterAgentCommunication { communication } => {
                     inter_agent_communication(&sess, sub.id.clone(), communication).await;

@@ -106,6 +106,15 @@ async fn run_loop(
     tick.tick().await;
     loop {
         tick.tick().await;
+        // If `loop_stop` already marked the task terminal but the tokio
+        // abort hasn't unwound this task yet (or the interval is in
+        // burst-catch-up mode), don't send another submission.
+        if registry
+            .status(&task_id)
+            .is_none_or(|s| s.is_terminal())
+        {
+            return;
+        }
         let now = Utc::now();
         registry.record_iteration(&task_id, now);
         let op = Op::UserInput {
@@ -117,8 +126,11 @@ async fn run_loop(
             final_output_json_schema: None,
             responsesapi_client_metadata: None,
         };
+        // Encode task_id in the submission id so `submission_loop` can drop
+        // already-queued firings after `loop_stop`. `__` is unambiguous
+        // because UUIDs never contain underscores.
         let sub = Submission {
-            id: format!("loop-{}", Uuid::now_v7()),
+            id: format!("loop__{task_id}__{}", Uuid::now_v7()),
             op,
             trace: None,
         };

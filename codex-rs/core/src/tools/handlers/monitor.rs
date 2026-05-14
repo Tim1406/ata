@@ -58,21 +58,48 @@ struct MonitorWatchForArgs {
     pattern: String,
     #[serde(default)]
     timeout_seconds: Option<u64>,
+    /// Default `false`: return on the first match (single-match mode).
+    /// When `true`, collect every match for the lifetime of the subprocess
+    /// (or until `max_matches` / `timeout_seconds` fires) and return them
+    /// all at once. Used for "react to each item in a batch" workflows.
+    #[serde(default)]
+    all_matches: bool,
+    /// Only meaningful when `all_matches=true`. Stop collecting after this
+    /// many matches and return early. `None` = collect until the subprocess
+    /// terminates or `timeout_seconds` fires.
+    #[serde(default)]
+    max_matches: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+struct MonitorWatchForMatch {
+    matching_line: String,
+    /// `"stdout"` or `"stderr"`.
+    stream: String,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 struct MonitorWatchForResponse {
-    /// True if a matching line was seen (either in the tail buffer at
-    /// subscribe time or on the live broadcast).
+    /// True if at least one matching line was seen.
     matched: bool,
-    /// The full matching line, when `matched` is true.
+    /// The first matching line. Always populated when `matched` is true,
+    /// regardless of single- or all-matches mode. Single-match mode also
+    /// sets `stream` to the originating stream of this line.
     matching_line: Option<String>,
-    /// `"stdout"` or `"stderr"`, when `matched` is true.
+    /// `"stdout"` or `"stderr"`, when `matched` is true and only one match
+    /// was captured (single-match mode, or first match in all-matches mode).
     stream: Option<String>,
-    /// True when the subprocess terminated before any line matched.
+    /// Populated only when `all_matches=true`. Every matching line in the
+    /// order it appeared, with the stream it came from. Empty list when
+    /// nothing matched.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    matches: Vec<MonitorWatchForMatch>,
+    /// True when the subprocess terminated before (or without further)
+    /// matches.
     terminated_without_match: bool,
-    /// True when an explicit `timeout_seconds` fired before a match.
+    /// True when an explicit `timeout_seconds` fired.
     timed_out: bool,
 }
 

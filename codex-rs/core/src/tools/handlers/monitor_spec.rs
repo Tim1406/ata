@@ -106,18 +106,35 @@ pub fn create_monitor_watch_for_tool() -> ToolSpec {
                     .to_string(),
             )),
         ),
+        (
+            "all_matches".to_string(),
+            JsonSchema::boolean(Some(
+                "Optional. Default `false`. When `false`, the call returns on the FIRST matching line — use this when reacting to a one-off event (server ready, first error, panic line, etc).\n\nWhen `true`, the call keeps collecting EVERY matching line until the subprocess terminates, an explicit `timeout_seconds` fires, or `max_matches` is reached. Used for batch workflows: \"as each of 50 papers downloads, give me the line\" / \"every test that emits 'FAILED:' in this run.\" The response carries the full list under `matches`."
+                    .to_string(),
+            )),
+        ),
+        (
+            "max_matches".to_string(),
+            JsonSchema::number(Some(
+                "Optional. Only meaningful with `all_matches=true`. Stop collecting after this many matches even if the subprocess keeps running. Omit to collect every match for the lifetime of the subprocess."
+                    .to_string(),
+            )),
+        ),
     ]);
 
     ToolSpec::Function(ResponsesApiTool {
         name: MONITOR_WATCH_FOR_TOOL_NAME.to_string(),
         description: r#"Block until a running monitor emits a line containing `pattern`, or until the subprocess terminates without ever matching, or until an explicit `timeout_seconds` fires. Lighter than `monitor_wait` when the caller only cares about a specific event (a phase boundary, an error keyword, a "ready" signal) rather than the final result.
 
-By default this waits indefinitely. Matching is a literal substring on the raw line payload (not the `[stdout]` / `[stderr]` tag).
+By default this waits indefinitely and returns on the FIRST matching line. Matching is a literal substring on the raw line payload (not the `[stdout]` / `[stderr]` tag).
+
+Batch mode: pass `all_matches=true` to collect EVERY matching line over the lifetime of the subprocess (or until `max_matches` / `timeout_seconds`). Used for "react to each item in a batch" workflows — every paper processed, every test that fails, every download that completes.
 
 Returns: {
   matched: bool,
-  matching_line: string | null,
-  stream: "stdout" | "stderr" | null,
+  matching_line: string | null,        # first match (single-match mode, or convenience first-match in batch mode)
+  stream: "stdout" | "stderr" | null,  # only set when at least one match
+  matches: [{ matching_line, stream }] # populated only when all_matches=true, contains every match in order
   terminated_without_match: bool,
   timed_out: bool
 }.
@@ -125,6 +142,7 @@ Returns: {
 Use when:
 - The user asked you to react to a *specific* phrase in the output ("tell me when the build prints 'warning:'", "alert me when the server says 'listening on port'", "wait for 'PANIC' to appear").
 - You want to act mid-stream without waiting for the full subprocess to finish.
+- The user is processing a batch and wants per-item feedback ("tell me as each paper downloads", "as each test fails, list it") — pass `all_matches=true`.
 
 Don't use when:
 - The user wants the *final result* of the command, including exit status — use `monitor_wait` instead.

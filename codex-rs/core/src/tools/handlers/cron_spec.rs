@@ -53,6 +53,12 @@ USE THIS TOOL ONLY when the user wants firings tied to wall-clock times:
 - "daily at 09:00"
 - "on the 1st of every month"
 
+Research-workflow examples that fit naturally here (compose with the research skills like `$paper-discovery`, `$hn-synthesis`, `$kb`):
+- "every weekday at 9am, run $paper-discovery on new transformer-architecture papers" — daily literature review
+- "every Sunday at 8pm, run $hn-synthesis on 'AI safety' for the past week" — weekly digest
+- "daily at 6am, sync new Zotero items into the KB" — overnight library sync
+- "every Tuesday at 10am, run citation tracking on the papers in my KB" — weekly citation refresh
+
 DO NOT USE THIS TOOL for interval-based requests like:
 - "every 5 minutes" — use `loop_start` with interval_seconds=300. The user almost always means "5 minutes from now, then every 5 minutes", NOT "at :00 :05 :10 of every hour".
 - "every 30 seconds" — use `loop_start`.

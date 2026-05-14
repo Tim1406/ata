@@ -13,6 +13,7 @@ use crate::tools::registry::ToolHandler;
 use crate::tools::registry::ToolKind;
 
 use super::MonitorWatchForArgs;
+use super::MonitorWatchForMatch;
 use super::MonitorWatchForResponse;
 
 pub struct MonitorWatchForHandler;
@@ -51,6 +52,8 @@ impl ToolHandler for MonitorWatchForHandler {
 
         let task_id: TaskId = args.task_id.clone().into();
         let pattern = args.pattern;
+        let all_matches = args.all_matches;
+        let max_matches = args.max_matches;
         let deadline = args
             .timeout_seconds
             .map(|s| tokio::time::Instant::now() + Duration::from_secs(s));
@@ -69,14 +72,14 @@ impl ToolHandler for MonitorWatchForHandler {
             )));
         }
 
-        // First, scan the tail buffer for an already-emitted match. This
-        // covers the race where lines arrive between `monitor_start` and
-        // the watcher attaching. Tail entries are prefixed with `[stdout] `
-        // or `[stderr] ` by `emit_line`; strip the prefix when matching so
-        // the user's `pattern` matches the raw line, not the tag.
+        let mut collected: Vec<MonitorWatchForMatch> = Vec::new();
+
+        // First, scan the tail buffer for already-emitted matches. Single-
+        // match mode returns on the first hit; multi-match mode collects
+        // every hit and keeps going.
         for tail_line in runtime.registry.tail_snapshot(&task_id) {
-            let (stream, payload) = strip_stream_prefix(&tail_line);
-            if payload.contains(&pattern) {
+            let (stream, line_payload) = strip_stream_prefix(&tail_line);
+            if line_payload.contains(&pattern) {
                 tracing::info!(
                     target: "codex_scheduling::monitor",
                     task_id = %task_id,
@@ -84,18 +87,21 @@ impl ToolHandler for MonitorWatchForHandler {
                     source = "tail",
                     "monitor.watch_for_match"
                 );
-                return ok_response(MonitorWatchForResponse {
-                    matched: true,
-                    matching_line: Some(payload.to_string()),
-                    stream: Some(stream.to_string()),
-                    terminated_without_match: false,
-                    timed_out: false,
+                collected.push(MonitorWatchForMatch {
+                    matching_line: line_payload.to_string(),
+                    stream: stream.to_string(),
                 });
+                if !all_matches {
+                    return ok_response(build_response(collected, all_matches, false, false));
+                }
+                if max_matches.is_some_and(|cap| collected.len() as u64 >= cap) {
+                    return ok_response(build_response(collected, all_matches, false, false));
+                }
             }
         }
 
-        // Now subscribe to future lines. `None` means the monitor has
-        // already terminated and dropped its broadcast — report it.
+        // Subscribe to future lines. `None` means the monitor has already
+        // terminated and dropped its broadcast.
         let Some(mut rx) = runtime.subscribe(&task_id) else {
             tracing::info!(
                 target: "codex_scheduling::monitor",
@@ -103,18 +109,10 @@ impl ToolHandler for MonitorWatchForHandler {
                 pattern = %pattern,
                 "monitor.watch_for_terminated"
             );
-            return ok_response(MonitorWatchForResponse {
-                matched: false,
-                matching_line: None,
-                stream: None,
-                terminated_without_match: true,
-                timed_out: false,
-            });
+            return ok_response(build_response(collected, all_matches, true, false));
         };
 
         loop {
-            // Compute the per-iteration sleep so we don't keep recomputing
-            // the deadline each pass.
             let sleep_until = deadline.map(tokio::time::sleep_until);
             tokio::select! {
                 biased;
@@ -129,15 +127,17 @@ impl ToolHandler for MonitorWatchForHandler {
                                     source = "broadcast",
                                     "monitor.watch_for_match"
                                 );
-                                return ok_response(MonitorWatchForResponse {
-                                    matched: true,
-                                    matching_line: Some(line),
-                                    stream: Some(stream),
-                                    terminated_without_match: false,
-                                    timed_out: false,
+                                collected.push(MonitorWatchForMatch {
+                                    matching_line: line,
+                                    stream,
                                 });
+                                if !all_matches {
+                                    return ok_response(build_response(collected, all_matches, false, false));
+                                }
+                                if max_matches.is_some_and(|cap| collected.len() as u64 >= cap) {
+                                    return ok_response(build_response(collected, all_matches, false, false));
+                                }
                             }
-                            // No match, keep listening.
                         }
                         Err(RecvError::Closed) => {
                             tracing::info!(
@@ -146,19 +146,12 @@ impl ToolHandler for MonitorWatchForHandler {
                                 pattern = %pattern,
                                 "monitor.watch_for_terminated"
                             );
-                            return ok_response(MonitorWatchForResponse {
-                                matched: false,
-                                matching_line: None,
-                                stream: None,
-                                terminated_without_match: true,
-                                timed_out: false,
-                            });
+                            return ok_response(build_response(collected, all_matches, true, false));
                         }
                         Err(RecvError::Lagged(skipped)) => {
-                            // The broadcast buffer (256) overran us. The
-                            // lagged lines may have contained a match; fall
-                            // back to inspecting the tail buffer once before
-                            // continuing to listen.
+                            // The broadcast buffer overran us. Fall back to
+                            // inspecting the tail once before continuing —
+                            // catches any matches we slipped past.
                             tracing::warn!(
                                 target: "codex_scheduling::monitor",
                                 task_id = %task_id,
@@ -166,15 +159,18 @@ impl ToolHandler for MonitorWatchForHandler {
                                 "monitor.watch_for_lagged"
                             );
                             for tail_line in runtime.registry.tail_snapshot(&task_id) {
-                                let (stream, payload) = strip_stream_prefix(&tail_line);
-                                if payload.contains(&pattern) {
-                                    return ok_response(MonitorWatchForResponse {
-                                        matched: true,
-                                        matching_line: Some(payload.to_string()),
-                                        stream: Some(stream.to_string()),
-                                        terminated_without_match: false,
-                                        timed_out: false,
+                                let (stream, line_payload) = strip_stream_prefix(&tail_line);
+                                if line_payload.contains(&pattern) {
+                                    collected.push(MonitorWatchForMatch {
+                                        matching_line: line_payload.to_string(),
+                                        stream: stream.to_string(),
                                     });
+                                    if !all_matches {
+                                        return ok_response(build_response(collected, all_matches, false, false));
+                                    }
+                                    if max_matches.is_some_and(|cap| collected.len() as u64 >= cap) {
+                                        return ok_response(build_response(collected, all_matches, false, false));
+                                    }
                                 }
                             }
                         }
@@ -192,15 +188,45 @@ impl ToolHandler for MonitorWatchForHandler {
                         pattern = %pattern,
                         "monitor.watch_for_timeout"
                     );
-                    return ok_response(MonitorWatchForResponse {
-                        matched: false,
-                        matching_line: None,
-                        stream: None,
-                        terminated_without_match: false,
-                        timed_out: true,
-                    });
+                    return ok_response(build_response(collected, all_matches, false, true));
                 }
             }
+        }
+    }
+}
+
+/// Build the response from a collected vec of matches plus the lifecycle
+/// flags. Single-match mode (`all_matches=false`) keeps the `matches` array
+/// empty for backward compat and only sets `matching_line`/`stream`.
+fn build_response(
+    collected: Vec<MonitorWatchForMatch>,
+    all_matches: bool,
+    terminated_without_more: bool,
+    timed_out: bool,
+) -> MonitorWatchForResponse {
+    let matched = !collected.is_empty();
+    let first_line = collected.first().map(|m| m.matching_line.clone());
+    let first_stream = collected.first().map(|m| m.stream.clone());
+    let terminated_without_match = terminated_without_more && !matched;
+    if all_matches {
+        MonitorWatchForResponse {
+            matched,
+            matching_line: first_line,
+            stream: first_stream,
+            matches: collected,
+            terminated_without_match,
+            timed_out,
+        }
+    } else {
+        // Backward compat: single-match callers don't expect a `matches`
+        // array. Leave it empty so the serializer skips it.
+        MonitorWatchForResponse {
+            matched,
+            matching_line: first_line,
+            stream: first_stream,
+            matches: Vec::new(),
+            terminated_without_match,
+            timed_out,
         }
     }
 }

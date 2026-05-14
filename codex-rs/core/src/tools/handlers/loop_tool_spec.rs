@@ -66,6 +66,12 @@ USE THIS TOOL for any interval-based request — the user almost always means "s
 - "keep checking ... until ..."
 - "repeat X N times"
 
+Research-workflow examples (compose with skills like `$paper-discovery`, `$hn-synthesis`, `$kb`):
+- "every 4 hours, run $hn-synthesis on 'agent reasoning'" — running research digest
+- "every 30 minutes, search arxiv for new papers on AI safety" — frequent feed check
+- "every 2 hours, expand citations for papers in the KB" — incremental citation graph build
+- "every 15 minutes, check if my paper-summarization batch script has finished new entries"
+
 DO NOT USE THIS TOOL for clock-aligned schedules ("at 9am daily", "every Monday", "on the hour") — those belong to cron_create.
 
 Don't use when:

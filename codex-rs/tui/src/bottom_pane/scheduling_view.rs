@@ -434,9 +434,14 @@ fn loop_row_lines(row: &SchedulingLoopRow, selected: bool) -> [Line<'static>; 2]
         Some(s) => format!("{s}s"),
         None => "dynamic".to_string(),
     };
+    let next = row
+        .next_wakeup_at
+        .as_deref()
+        .and_then(relative_time)
+        .unwrap_or_else(|| "—".to_string());
     let details = Line::from(
         format!(
-            "      iter {} · every {interval}",
+            "      iter {} · every {interval} · next {next}",
             row.iteration_count
         )
         .dim(),

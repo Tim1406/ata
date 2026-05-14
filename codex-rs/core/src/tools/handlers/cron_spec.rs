@@ -31,19 +31,42 @@ pub fn create_cron_create_tool() -> ToolSpec {
                     .to_string(),
             )),
         ),
+        (
+            "background".to_string(),
+            JsonSchema::boolean(Some(
+                "Optional. Default `true`. Controls whether each firing is visible in chat.\n\n\
+                Pass `false` when the user clearly wants to SEE the result of every firing — phrases like \"say X every minute\", \"tell me X each hour\", \"print Y\", \"show me Z periodically\", \"report back every N minutes\". With `background=false`, the agent's reply is rendered as a normal chat turn.\n\n\
+                Pass `true` (or omit) when the user wants the firing to run quietly and only alert on a condition — phrases like \"alert me if\", \"only tell me when\", \"check X and notify me if Y\", \"watch for changes\". With `background=true`, the agent's reply text is hidden; only tool-call output (e.g. shell `echo`) renders in chat.\n\n\
+                Rule of thumb: if the user's request has no conditional (\"only if…\", \"when X happens…\"), prefer `false` so they actually see output. Default to `true` only when the prompt is clearly an alert-style poll."
+                    .to_string(),
+            )),
+        ),
     ]);
 
     ToolSpec::Function(ResponsesApiTool {
         name: CRON_CREATE_TOOL_NAME.to_string(),
-        description: r#"Schedule a prompt to be injected as a new user message on a recurring cron schedule, in the current session.
+        description: r#"Schedule a prompt to be injected as a new user message on a recurring **clock-aligned** schedule, in the current session.
 
-Use when:
-- The user asks for something to happen on a fixed schedule (e.g. "every hour", "at 9am daily", "every 5 minutes").
-- There is no specific termination condition — the schedule is open-ended.
+USE THIS TOOL ONLY when the user wants firings tied to wall-clock times:
+- "every Monday at 9am"
+- "at the top of every hour"
+- "daily at 09:00"
+- "on the 1st of every month"
+
+DO NOT USE THIS TOOL for interval-based requests like:
+- "every 5 minutes" — use `loop_start` with interval_seconds=300. The user almost always means "5 minutes from now, then every 5 minutes", NOT "at :00 :05 :10 of every hour".
+- "every 30 seconds" — use `loop_start`.
+- "every hour starting now" — use `loop_start` with interval_seconds=3600.
+
+Rule of thumb: if the user picks an explicit wall-clock time ("at 9am", "at midnight", "on Sunday"), use cron. If they just give a duration ("every N minutes"), use `loop_start` so the schedule starts from now, not the next clock boundary.
 
 Don't use when:
 - The user wants to react to streaming output (logs, build progress) — that's the Monitor tool.
 - The user wants the agent to keep checking until a condition is met, then stop — that's the Loop tool.
+
+Visibility (background flag):
+- If the user says "say X every hour" / "tell me X each morning" / "report back" — pass `background: false` so they see the agent's reply each time.
+- If the user says "alert me if" / "only when" / "check for X and notify me if Y" — pass `background: true` (or omit) so quiet runs don't flood chat.
 
 The job fires inside the current session; closing the session stops it. Returns a task_id that can be used with cron_delete."#
             .to_string(),

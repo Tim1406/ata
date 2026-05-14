@@ -17,13 +17,24 @@ pub const MONITOR_WAIT_TOOL_NAME: &str = "monitor_wait";
 
 // @agent-facing
 pub fn create_monitor_start_tool() -> ToolSpec {
-    let properties = BTreeMap::from([(
-        "command".to_string(),
-        JsonSchema::string(Some(
-            "Required. Shell command to run in the background. Examples: `tail -F build.log`, `ping -c 30 example.com`, `cargo test 2>&1`."
-                .to_string(),
-        )),
-    )]);
+    let properties = BTreeMap::from([
+        (
+            "command".to_string(),
+            JsonSchema::string(Some(
+                "Required. Shell command to run in the background. Examples: `tail -F build.log`, `ping -c 30 example.com`, `cargo test 2>&1`."
+                    .to_string(),
+            )),
+        ),
+        (
+            "background".to_string(),
+            JsonSchema::boolean(Some(
+                "Optional. Default `true`. Controls per-line visibility in chat.\n\n\
+                Pass `false` when the user wants to watch streaming output live — phrases like \"show me each ping\", \"tail and display\", \"stream the log\", \"I want to see every line as it comes\". With `background=false`, every stdout/stderr line renders as a chat cell as it happens.\n\n\
+                Pass `true` (or omit) when the user just wants to know when it finishes (or alert on the result), not see every line — phrases like \"wait for X to finish then…\", \"download and summarize\", \"run build and tell me if it fails\". With `background=true`, per-line output is suppressed in chat; the `/scheduling` panel's `lines N` counter still climbs and the terminate summary still fires."
+                    .to_string(),
+            )),
+        ),
+    ]);
 
     ToolSpec::Function(ResponsesApiTool {
         name: MONITOR_START_TOOL_NAME.to_string(),

@@ -29,7 +29,26 @@ pub fn create_loop_start_tool() -> ToolSpec {
         (
             "interval_seconds".to_string(),
             JsonSchema::integer(Some(
-                "Required. Seconds between iterations. Minimum 5."
+                "Required. Seconds between iterations. Minimum 5. Convert any duration the user mentions to seconds before passing in:\n\
+                - \"every 30 seconds\" → 30\n\
+                - \"every 5 minutes\" → 300\n\
+                - \"every 30 minutes\" → 1800\n\
+                - \"every hour\" → 3600\n\
+                - \"every 6 hours\" → 21600\n\
+                - \"every day\" / \"daily\" (interval-style, starting from now) → 86400\n\
+                - \"every week\" → 604800\n\
+                - \"every month\" (approximate) → 2592000 (30 days)\n\
+                Always honor the user's exact unit; don't round to a different unit unless they say so."
+                    .to_string(),
+            )),
+        ),
+        (
+            "background".to_string(),
+            JsonSchema::boolean(Some(
+                "Optional. Default `true`. Controls whether each iteration is visible in chat.\n\n\
+                Pass `false` when the user clearly wants to SEE each iteration's result — phrases like \"say X every N seconds\", \"tell me X each iteration\", \"print Y every N seconds\", \"show me Z every N\". With `background=false`, the agent's reply is rendered as a normal chat turn.\n\n\
+                Pass `true` (or omit) when the loop is a quiet poll that should only alert on a condition — phrases like \"alert me if\", \"check until X is true\", \"poll for changes\", \"keep watching for Y\". With `background=true`, the agent's reply text is hidden; only tool-call output (e.g. shell `echo`) renders in chat.\n\n\
+                Rule of thumb: if the user's request has no conditional (\"only if…\", \"when X happens…\"), prefer `false` so they actually see output. Default to `true` only when the prompt is clearly a polling check."
                     .to_string(),
             )),
         ),
@@ -37,19 +56,19 @@ pub fn create_loop_start_tool() -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: LOOP_START_TOOL_NAME.to_string(),
-        description: r#"Repeat a prompt on a fixed interval inside this session. Each iteration injects the prompt as a new user-message turn so you can respond to it (think, run tools, summarize). Keeps running until you call loop_stop.
+        description: r#"Repeat a prompt on a fixed **interval from now**, in this session. The first iteration fires `interval_seconds` after creation; subsequent iterations fire `interval_seconds` apart. Each iteration injects the prompt as a new user-message turn so you can respond to it (think, run tools, summarize). Keeps running until you call loop_stop.
 
-Use this tool — NOT a shell `for` loop or `while sleep` script — whenever the user wants something recurring inside this session.
+USE THIS TOOL for any interval-based request — the user almost always means "starting now":
+- "every N seconds, do X"
+- "every N minutes, do X"
+- "every hour starting now"
+- "run X every 30 seconds"
+- "keep checking ... until ..."
+- "repeat X N times"
 
-Trigger phrases (use when you hear these):
-- "create a loop that ..."
-- "every N seconds/minutes, do X"
-- "run X every N seconds" (any interval that involves agent reasoning per iteration)
-- "keep checking ... until ..." (polling / babysitting a condition)
-- "repeat X N times" (the agent counts iterations and calls loop_stop on the Nth)
+DO NOT USE THIS TOOL for clock-aligned schedules ("at 9am daily", "every Monday", "on the hour") — those belong to cron_create.
 
 Don't use when:
-- The user wants a recurring schedule at clock times (every hour, daily at 9am) — use cron_create.
 - You should react to streaming subprocess output as it appears — use monitor_start.
 - The work is a tight pure-shell sequence with no agent reasoning per iteration (e.g. "print date 3 times back-to-back as fast as possible") — a `for` loop is fine there.
 

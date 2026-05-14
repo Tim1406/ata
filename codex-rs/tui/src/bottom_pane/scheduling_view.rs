@@ -12,6 +12,7 @@ use ratatui::layout::Layout;
 use ratatui::layout::Rect;
 use ratatui::style::Stylize;
 use ratatui::text::Line;
+use ratatui::text::Span;
 use ratatui::widgets::Block;
 use ratatui::widgets::Widget;
 use std::cell::Cell;
@@ -389,14 +390,38 @@ fn row_marker(selected: bool) -> &'static str {
     if selected { "▸ " } else { "  " }
 }
 
+fn row_head(marker: &str, short_id: &str, status: &str, label: &str) -> Line<'static> {
+    Line::from(vec![
+        Span::raw(format!("{marker}{short_id}  [")),
+        status_span(status),
+        Span::raw(format!("]  {label}")),
+    ])
+}
+
+/// Map a status string to a colored, padded span. Colors:
+/// - Pending → cyan (waiting, neutral)
+/// - Running → yellow (in flight)
+/// - Completed → green (success, dim so it recedes)
+/// - Failed → red
+/// - Killed → dim gray (user stopped it)
+/// - Interrupted → magenta (subprocess died with prior session)
+fn status_span(status: &str) -> Span<'static> {
+    let padded = pad_status(status);
+    match status {
+        "Pending" => padded.cyan(),
+        "Running" => padded.yellow(),
+        "Completed" => padded.green().dim(),
+        "Failed" => padded.red(),
+        "Killed" => padded.dim(),
+        "Interrupted" => padded.magenta(),
+        _ => Span::raw(padded),
+    }
+}
+
 fn cron_row_lines(row: &SchedulingCronRow, selected: bool) -> [Line<'static>; 2] {
     let short_id = short_task_id(&row.task_id);
     let prompt = truncate(&row.prompt, 50);
-    let head = Line::from(format!(
-        "{}{short_id}  [{}]  {prompt}",
-        row_marker(selected),
-        pad_status(&row.status)
-    ));
+    let head = row_head(row_marker(selected), &short_id, &row.status, &prompt);
     let next = row
         .next_fire_at
         .as_deref()
@@ -411,11 +436,7 @@ fn cron_row_lines(row: &SchedulingCronRow, selected: bool) -> [Line<'static>; 2]
 fn monitor_row_lines(row: &SchedulingMonitorRow, selected: bool) -> [Line<'static>; 2] {
     let short_id = short_task_id(&row.task_id);
     let cmd = truncate(&row.command, 60);
-    let head = Line::from(format!(
-        "{}{short_id}  [{}]  {cmd}",
-        row_marker(selected),
-        pad_status(&row.status)
-    ));
+    let head = row_head(row_marker(selected), &short_id, &row.status, &cmd);
     let details = Line::from(
         format!("      lines {}", row.lines_emitted).dim(),
     );
@@ -425,11 +446,7 @@ fn monitor_row_lines(row: &SchedulingMonitorRow, selected: bool) -> [Line<'stati
 fn loop_row_lines(row: &SchedulingLoopRow, selected: bool) -> [Line<'static>; 2] {
     let short_id = short_task_id(&row.task_id);
     let prompt = truncate(&row.prompt, 50);
-    let head = Line::from(format!(
-        "{}{short_id}  [{}]  {prompt}",
-        row_marker(selected),
-        pad_status(&row.status)
-    ));
+    let head = row_head(row_marker(selected), &short_id, &row.status, &prompt);
     let interval = match row.interval_seconds {
         Some(s) => format!("{s}s"),
         None => "dynamic".to_string(),

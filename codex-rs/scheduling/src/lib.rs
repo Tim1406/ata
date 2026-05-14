@@ -9,6 +9,7 @@ pub mod loop_registry;
 pub mod loop_task;
 pub mod monitor;
 pub mod monitor_registry;
+pub mod persist;
 pub mod registry;
 pub mod task;
 
@@ -17,5 +18,6 @@ pub use loop_registry::LoopRegistry;
 pub use loop_task::LoopTask;
 pub use monitor::MonitorTask;
 pub use monitor_registry::MonitorRegistry;
+pub use persist::{SchedulingSnapshot, load as load_scheduling_state, save as save_scheduling_state, scheduling_state_path};
 pub use registry::CronRegistry;
 pub use task::{TaskId, TaskKind, TaskStatus};

@@ -720,10 +720,11 @@ impl Codex {
                 tick.tick().await;
                 loop {
                     tick.tick().await;
-                    if session_weak.upgrade().is_none() {
+                    let Some(session_alive) = session_weak.upgrade() else {
                         break;
-                    }
+                    };
                     let due = cron_registry.take_due(chrono::Utc::now());
+                    let any_fired = !due.is_empty();
                     for (id, prompt, background) in due {
                         let op = Op::UserInput {
                             items: vec![UserInput::Text {
@@ -751,9 +752,62 @@ impl Codex {
                             return;
                         }
                     }
+                    // Persist after a tick fired so the bumped fire_count
+                    // and last_fired_at survive a crash before the next
+                    // tool-driven save. Skipped on quiet ticks for sanity.
+                    if any_fired {
+                        session_alive.persist_scheduling_state();
+                    }
                 }
             });
         }
+
+        // Phase 4: re-spawn per-loop tokio tasks for any loops that came
+        // back from the persisted snapshot. Cron is engine-driven (single
+        // tokio task above polls the registry every second, so resumed
+        // cron jobs are already covered). Loops are different — each loop
+        // is its own tokio task that died when the prior session quit, so
+        // we need to bring them back one-by-one. Monitors stay dead with
+        // status `Interrupted`; we don't auto-restart subprocesses.
+        if session.scheduling_is_root
+            && let Some(loop_runtime) = session.loop_runtime.clone()
+        {
+            let resumed = loop_runtime
+                .registry
+                .list()
+                .into_iter()
+                .filter(|task| !task.status.is_terminal())
+                .filter(|task| task.interval.is_some())
+                .collect::<Vec<_>>();
+            for task in resumed {
+                let task_id = task.id.clone();
+                let prompt = task.prompt.clone();
+                let interval = task
+                    .interval
+                    .expect("dynamic-pacing loops not yet supported on resume");
+                let background = task.background;
+                let registry = loop_runtime.registry.clone();
+                let tx_sub_for_loop = session.submission_tx.clone();
+                let join_handle = tokio::spawn(async move {
+                    crate::tools::handlers::loop_tool::run_loop(
+                        task_id,
+                        prompt,
+                        interval,
+                        background,
+                        registry,
+                        tx_sub_for_loop,
+                    )
+                    .await;
+                });
+                loop_runtime.store_handle(task.id.clone(), join_handle.abort_handle());
+            }
+        }
+
+        // Phase 4: persist once after hydration so subsequent restarts see
+        // the corrected monitor statuses (Running → Interrupted) even if
+        // no other mutation happens this session.
+        session.persist_scheduling_state();
+
         let codex = Codex {
             tx_sub,
             rx_event,

@@ -196,6 +196,9 @@ pub async fn delete_scheduling_task(
             }
         }
     }
+    // Phase 4: durable state is now stale; rewrite so the deletion sticks
+    // across `/quit`.
+    sess.persist_scheduling_state();
     list_scheduling_tasks(sess, sub_id).await;
 }
 

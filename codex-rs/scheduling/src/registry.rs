@@ -74,6 +74,18 @@ impl CronRegistry {
             .is_empty()
     }
 
+    /// Replace the registry contents with the supplied jobs. Used on
+    /// session resume to rehydrate state loaded from disk (Phase 4). Any
+    /// job whose `next_fire_at` is `None` is left untouched — the engine
+    /// will compute the next firing time on its next tick if appropriate.
+    pub fn hydrate(&self, jobs: Vec<CronJob>) {
+        let mut map = self.jobs.lock().expect("CronRegistry mutex poisoned");
+        map.clear();
+        for job in jobs {
+            map.insert(job.id.clone(), job);
+        }
+    }
+
     /// Return prompts to fire now (whose `next_fire_at <= now`) and update
     /// their `next_fire_at`, `last_fired_at`, and `fire_count` in-place.
     ///

@@ -14,6 +14,9 @@ mod stop;
 pub use list::LoopListHandler;
 pub use start::LoopStartHandler;
 pub use stop::LoopStopHandler;
+// Phase 4: respawning loops on session resume calls back into the same
+// runner used by `loop_start`.
+pub(crate) use start::run_loop;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]

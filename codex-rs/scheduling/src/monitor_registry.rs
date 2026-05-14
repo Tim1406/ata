@@ -87,6 +87,21 @@ impl MonitorRegistry {
             .is_empty()
     }
 
+    /// Replace the registry contents with the supplied tasks. Used on
+    /// session resume (Phase 4) to rehydrate from a saved snapshot. The
+    /// underlying subprocess is gone, so the caller is expected to mark
+    /// any non-terminal entries as `Interrupted` before storing them.
+    pub fn hydrate(&self, tasks: Vec<MonitorTask>) {
+        let mut map = self.monitors.lock().expect("MonitorRegistry mutex poisoned");
+        map.clear();
+        for task in tasks {
+            map.insert(task.id.clone(), task);
+        }
+        // Tail buffers don't survive a process restart; start fresh.
+        let mut tails = self.tails.lock().expect("MonitorRegistry tails poisoned");
+        tails.clear();
+    }
+
     /// Update bookkeeping when the per-monitor task observes output.
     pub fn record_line(&self, id: &TaskId) {
         let mut monitors = self

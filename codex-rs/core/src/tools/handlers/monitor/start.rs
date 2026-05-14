@@ -72,6 +72,7 @@ impl ToolHandler for MonitorStartHandler {
 
         let task = MonitorTask::new_with_background(args.command.clone(), args.background);
         let task_id = runtime.registry.insert(task);
+        session.persist_scheduling_state();
 
         let tx_sub = session.submission_tx();
         let session_for_task = session.clone();
@@ -193,6 +194,9 @@ async fn run_monitor(
         Err(_) => TaskStatus::Failed,
     };
     registry.mark_terminal(&task_id, status, Utc::now());
+    // Phase 4: persist the final status so resume sees Completed/Failed
+    // instead of the stale Running.
+    session.persist_scheduling_state();
 
     let tail = registry.tail_snapshot(&task_id);
     emit_terminate_summary(&task_id, &command, status, tail, &tx_sub).await;

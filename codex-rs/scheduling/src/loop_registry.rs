@@ -71,18 +71,46 @@ impl LoopRegistry {
             .map(|task| task.status)
     }
 
+    /// Replace the registry contents with the supplied tasks. Used on
+    /// session resume (Phase 4) to rehydrate from a saved snapshot. Note
+    /// that this hydrates *data only*; the caller still needs to spawn a
+    /// new tokio task for each non-terminal loop because the previous
+    /// tasks died with the prior session.
+    pub fn hydrate(&self, tasks: Vec<LoopTask>) {
+        let mut map = self.loops.lock().expect("LoopRegistry mutex poisoned");
+        map.clear();
+        for task in tasks {
+            map.insert(task.id.clone(), task);
+        }
+    }
+
     /// Record one iteration of a loop. Called by the per-loop tokio task
-    /// each time it fires.
+    /// each time it fires. Also advances `next_wakeup_at` to `fired_at + interval`
+    /// so the `/scheduling` panel can show a live countdown.
     pub fn record_iteration(&self, id: &TaskId, fired_at: DateTime<Utc>) {
         let mut loops = self.loops.lock().expect("LoopRegistry mutex poisoned");
         if let Some(task) = loops.get_mut(id) {
             task.last_iter_at = Some(fired_at);
             task.iteration_count = task.iteration_count.saturating_add(1);
+            if let Some(interval) = task.interval
+                && let Ok(interval_chrono) = chrono::Duration::from_std(interval)
+            {
+                task.next_wakeup_at = Some(fired_at + interval_chrono);
+            }
             // Return to `Pending` between firings so `/scheduling` reads as
             // "waiting for next interval tick" rather than stuck on `Running`
             // forever. Mirrors the cron registry fix. Terminal transitions
             // (Completed / Killed) come from `mark_terminal` via loop_stop.
             task.status = TaskStatus::Pending;
+        }
+    }
+
+    /// Set the initial `next_wakeup_at` for a loop. Called by the per-loop
+    /// tokio task once when it computes the first scheduled fire time.
+    pub fn set_next_wakeup(&self, id: &TaskId, wakeup_at: DateTime<Utc>) {
+        let mut loops = self.loops.lock().expect("LoopRegistry mutex poisoned");
+        if let Some(task) = loops.get_mut(id) {
+            task.next_wakeup_at = Some(wakeup_at);
         }
     }
 

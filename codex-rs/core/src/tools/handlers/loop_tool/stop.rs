@@ -59,6 +59,7 @@ impl ToolHandler for LoopStopHandler {
             runtime
                 .registry
                 .mark_terminal(&task_id, TaskStatus::Completed, Utc::now());
+            session.persist_scheduling_state();
         }
         let response = LoopStopResponse { stopped: aborted };
         let body = serde_json::to_string(&response).map_err(|err| {

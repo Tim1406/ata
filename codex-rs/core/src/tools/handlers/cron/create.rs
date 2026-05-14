@@ -56,6 +56,7 @@ impl ToolHandler for CronCreateHandler {
 
         let now = Utc::now();
         let task_id = registry.insert(job, now);
+        session.persist_scheduling_state();
 
         let next_fire_at = registry
             .list()

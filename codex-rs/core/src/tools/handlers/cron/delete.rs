@@ -49,6 +49,9 @@ impl ToolHandler for CronDeleteHandler {
         })?;
 
         let deleted = registry.remove(&TaskId::from(args.task_id)).is_some();
+        if deleted {
+            session.persist_scheduling_state();
+        }
         let response = CronDeleteResponse { deleted };
 
         let body = serde_json::to_string(&response).map_err(|err| {

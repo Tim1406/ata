@@ -51,6 +51,11 @@ pub(crate) struct Session {
     /// Session-scoped Loop runtime (registry + per-loop abort handles).
     /// `None` when `Feature::Scheduling` is disabled.
     pub(crate) loop_runtime: Option<Arc<crate::scheduling_runtime::LoopRuntime>>,
+    /// Phase 4: sidecar path where this session's cron/monitor/loop state is
+    /// persisted so it survives `/quit` + `ata resume`. `None` when scheduling
+    /// is disabled, or for sub-agent sessions whose registries are inherited
+    /// from the root (only the root persists; sub-agents share its view).
+    pub(crate) scheduling_state_path: Option<std::path::PathBuf>,
     /// Submission sender, cloned into the session so handlers running on the
     /// session's tokio runtime can inject `Op::UserInput` back into the
     /// running session (e.g., to surface a Monitor's stdout line as a turn).
@@ -409,6 +414,36 @@ impl Session {
             loop_runtime: self.loop_runtime.clone(),
             submission_tx: self.submission_tx.clone(),
             scheduling_event_tx: self.scheduling_event_tx.clone(),
+        }
+    }
+
+    /// Phase 4: write the current cron/monitor/loop state to the session's
+    /// sidecar file. No-op when scheduling is disabled or for sub-agent
+    /// sessions whose registries are inherited from the root (the root owns
+    /// persistence). Errors are logged but not propagated — losing one write
+    /// shouldn't tear down the session; the next mutation will retry.
+    pub(crate) fn persist_scheduling_state(&self) {
+        let Some(path) = self.scheduling_state_path.as_ref() else {
+            return;
+        };
+        let cron_jobs = self
+            .cron_registry
+            .as_ref()
+            .map(|r| r.list())
+            .unwrap_or_default();
+        let monitors = self
+            .monitor_runtime
+            .as_ref()
+            .map(|r| r.registry.list())
+            .unwrap_or_default();
+        let loops = self
+            .loop_runtime
+            .as_ref()
+            .map(|r| r.registry.list())
+            .unwrap_or_default();
+        let snap = codex_scheduling::SchedulingSnapshot::new(cron_jobs, monitors, loops);
+        if let Err(err) = codex_scheduling::save_scheduling_state(path, &snap) {
+            tracing::warn!(error = %err, path = %path.display(), "failed to persist scheduling state");
         }
     }
 
@@ -989,6 +1024,9 @@ impl Session {
             // registries + root submission tx. Jobs and monitors registered by
             // this sub-agent then outlive the sub-agent and fire into the
             // root user-facing session. Root sessions (no handle) create fresh.
+            //
+            // Phase 4: only root sessions own a `scheduling_state_path`; the
+            // sidecar JSON is per-thread (sub-agents share the root's view).
             let (
                 cron_registry,
                 monitor_runtime,
@@ -996,6 +1034,7 @@ impl Session {
                 effective_submission_tx,
                 effective_scheduling_event_tx,
                 is_root,
+                scheduling_state_path,
             ) = match parent_scheduling {
                     Some(handle) => (
                         handle.cron_registry,
@@ -1004,6 +1043,7 @@ impl Session {
                         handle.submission_tx,
                         handle.scheduling_event_tx,
                         false,
+                        None,
                     ),
                     None => {
                         let cron = if scheduling_on {
@@ -1021,7 +1061,57 @@ impl Session {
                         } else {
                             None
                         };
-                        (cron, mon, lp, submission_tx, tx_event.clone(), true)
+                        // Phase 4: compute the per-thread sidecar path and
+                        // hydrate from disk if it exists (resume path).
+                        let path = if scheduling_on {
+                            Some(codex_scheduling::scheduling_state_path(
+                                &config.codex_home,
+                                &thread_id.to_string(),
+                            ))
+                        } else {
+                            None
+                        };
+                        if let (Some(path), Some(cron_reg), Some(mon_rt), Some(lp_rt)) =
+                            (path.as_ref(), cron.as_ref(), mon.as_ref(), lp.as_ref())
+                        {
+                            match codex_scheduling::load_scheduling_state(path) {
+                                Ok(Some(snap)) => {
+                                    cron_reg.hydrate(snap.cron_jobs);
+                                    // Subprocesses are dead — surface
+                                    // non-terminal monitors as `Interrupted`
+                                    // rather than misleadingly showing
+                                    // `Running`. Users can re-create if needed.
+                                    let monitors = snap
+                                        .monitors
+                                        .into_iter()
+                                        .map(|mut m| {
+                                            if !m.status.is_terminal() {
+                                                m.status = codex_scheduling::TaskStatus::Interrupted;
+                                                m.stopped_at = Some(chrono::Utc::now());
+                                            }
+                                            m
+                                        })
+                                        .collect::<Vec<_>>();
+                                    mon_rt.registry.hydrate(monitors);
+                                    // Loops: hydrate data; per-loop tokio
+                                    // tasks must be re-spawned in a follow-up
+                                    // step below (we don't have access to the
+                                    // submission channel here yet — that
+                                    // lands in the loop respawn block after
+                                    // session creation).
+                                    lp_rt.registry.hydrate(snap.loops);
+                                }
+                                Ok(None) => {}
+                                Err(err) => {
+                                    tracing::warn!(
+                                        error = %err,
+                                        path = %path.display(),
+                                        "failed to load scheduling state; starting fresh"
+                                    );
+                                }
+                            }
+                        }
+                        (cron, mon, lp, submission_tx, tx_event.clone(), true, path)
                     }
                 };
             let sess = Arc::new(Session {
@@ -1050,6 +1140,7 @@ impl Session {
                 submission_tx: effective_submission_tx,
                 scheduling_is_root: is_root,
                 scheduling_event_tx: effective_scheduling_event_tx,
+                scheduling_state_path,
             });
             if let Some(network_policy_decider_session) = network_policy_decider_session {
                 let mut guard = network_policy_decider_session.write().await;

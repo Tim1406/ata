@@ -74,6 +74,7 @@ impl ToolHandler for LoopStartHandler {
             args.background,
         );
         let task_id = runtime.registry.insert(task);
+        session.persist_scheduling_state();
 
         let tx_sub = session.submission_tx();
         let registry = runtime.registry.clone();
@@ -99,7 +100,7 @@ impl ToolHandler for LoopStartHandler {
     }
 }
 
-async fn run_loop(
+pub(crate) async fn run_loop(
     task_id: TaskId,
     prompt: String,
     interval: Duration,
@@ -110,6 +111,11 @@ async fn run_loop(
     let mut tick = tokio::time::interval(interval);
     // Skip the first immediate tick so we don't fire at start time.
     tick.tick().await;
+    // Record when the first real fire is expected so the `/scheduling` panel
+    // can show a countdown ("next in 58s") instead of a static "every 60s".
+    if let Ok(interval_chrono) = chrono::Duration::from_std(interval) {
+        registry.set_next_wakeup(&task_id, Utc::now() + interval_chrono);
+    }
     loop {
         tick.tick().await;
         // If `loop_stop` already marked the task terminal but the tokio

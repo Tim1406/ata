@@ -6,7 +6,7 @@ pub(crate) mod attach_url_files;
 mod cron;
 pub(crate) mod cron_spec;
 pub(crate) mod crop_figure;
-mod loop_tool;
+pub(crate) mod loop_tool;
 pub(crate) mod loop_tool_spec;
 mod monitor;
 pub(crate) mod monitor_spec;

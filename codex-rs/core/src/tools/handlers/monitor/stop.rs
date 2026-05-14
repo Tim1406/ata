@@ -56,6 +56,7 @@ impl ToolHandler for MonitorStopHandler {
             runtime
                 .registry
                 .mark_terminal(&task_id, TaskStatus::Killed, Utc::now());
+            session.persist_scheduling_state();
         }
         let response = MonitorStopResponse { stopped: aborted };
         let body = serde_json::to_string(&response).map_err(|err| {

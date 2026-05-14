@@ -15,6 +15,7 @@ mod watch_for;
 
 pub use list::MonitorListHandler;
 pub use start::MonitorStartHandler;
+pub(crate) use start::run_monitor;
 pub use stop::MonitorStopHandler;
 pub use wait::MonitorWaitHandler;
 pub use watch_for::MonitorWatchForHandler;
@@ -30,6 +31,11 @@ struct MonitorStartArgs {
     /// want the per-line stream.
     #[serde(default = "default_background")]
     background: bool,
+    /// When `true`, on session resume this monitor is respawned with the
+    /// same command. Default `false`. Only safe for idempotent
+    /// long-running commands (`tail -F`, `watch`, dev servers).
+    #[serde(default)]
+    restart_on_resume: bool,
 }
 
 fn default_background() -> bool {

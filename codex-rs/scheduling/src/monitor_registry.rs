@@ -160,6 +160,26 @@ impl MonitorRegistry {
             task.stopped_at = Some(stopped_at);
         }
     }
+
+    /// Reset a previously-terminal entry back to `Pending` with cleared
+    /// timestamps and a zeroed line count, in preparation for a respawn.
+    /// Used by the session-resume path for monitors that opted into
+    /// `restart_on_resume`.
+    pub fn reset_for_restart(&self, id: &TaskId) {
+        let mut monitors = self
+            .monitors
+            .lock()
+            .expect("MonitorRegistry mutex poisoned");
+        if let Some(task) = monitors.get_mut(id) {
+            task.status = TaskStatus::Pending;
+            task.started_at = None;
+            task.stopped_at = None;
+            task.lines_emitted = 0;
+        }
+        // Tail buffer also belongs to the prior, dead subprocess — drop it.
+        let mut tails = self.tails.lock().expect("MonitorRegistry tails poisoned");
+        tails.remove(id);
+    }
 }
 
 #[cfg(test)]

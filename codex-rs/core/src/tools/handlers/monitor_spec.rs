@@ -35,6 +35,23 @@ pub fn create_monitor_start_tool() -> ToolSpec {
                     .to_string(),
             )),
         ),
+        (
+            "restart_on_resume".to_string(),
+            JsonSchema::boolean(Some(
+                "Optional. Default `false`. When `true`, if ata quits or restarts while this monitor is running, the same command is automatically re-spawned on session resume (same task_id, fresh tail buffer).\n\n\
+                ONLY set this for safely-restartable, long-running commands:\n\
+                - `tail -F /path/to/log` — re-tailing is idempotent\n\
+                - `watch -n 5 'kubectl get pods'` — periodic snapshot, fine to restart\n\
+                - `python3 -m http.server 8000` — long-lived dev server\n\
+                - `ping example.com` — continuous reachability check\n\n\
+                NEVER set this for:\n\
+                - One-shot builds/tests (`cargo build`, `npm test`, `pytest`) — re-running silently is surprising\n\
+                - Destructive commands (`git push`, `rm`, `make deploy`) — never auto-replay\n\
+                - Batch processors that emit per-item output — restart would re-process items\n\n\
+                Rule of thumb: if the command would behave identically when run a second time and the user expects it to stay alive across sessions, set `true`. Otherwise leave it `false` and let the monitor stay `Interrupted` on resume."
+                    .to_string(),
+            )),
+        ),
     ]);
 
     ToolSpec::Function(ResponsesApiTool {

@@ -825,6 +825,70 @@ impl Codex {
             }
         }
 
+        // Re-spawn any monitors that were marked `Interrupted` by hydration
+        // *and* opted into `restart_on_resume`. Only safe for commands the
+        // user flagged as idempotent (tail -F, watch, dev servers).
+        if session.scheduling_is_root
+            && let Some(mon_runtime) = session.monitor_runtime().cloned()
+        {
+            let to_restart = mon_runtime
+                .registry
+                .list()
+                .into_iter()
+                .filter(|m| {
+                    matches!(m.status, codex_scheduling::TaskStatus::Interrupted)
+                        && m.restart_on_resume
+                })
+                .collect::<Vec<_>>();
+            let restarted_n = to_restart.len();
+            for task in to_restart {
+                let task_id = task.id.clone();
+                let command = task.command.clone();
+                let background = task.background;
+                tracing::info!(
+                    target: "codex_scheduling::monitor",
+                    task_id = %task_id,
+                    command = %command,
+                    background = background,
+                    "monitor.resumed"
+                );
+                // Reset the visible state so the panel shows the restarted
+                // monitor as Pending → Running rather than stuck on
+                // Interrupted. `run_monitor` will mark it Running once the
+                // subprocess spawns.
+                mon_runtime
+                    .registry
+                    .reset_for_restart(&task_id);
+                let watch_tx = mon_runtime.register_watcher_channel(task_id.clone());
+                let registry = mon_runtime.registry.clone();
+                let runtime_for_task = mon_runtime.clone();
+                let tx_sub_for_mon = session.submission_tx.clone();
+                let session_for_task = session.clone();
+                let task_id_for_task = task_id.clone();
+                let join_handle = tokio::spawn(async move {
+                    crate::tools::handlers::monitor::run_monitor(
+                        task_id_for_task,
+                        command,
+                        registry,
+                        runtime_for_task,
+                        tx_sub_for_mon,
+                        session_for_task,
+                        background,
+                        watch_tx,
+                    )
+                    .await;
+                });
+                mon_runtime.store_handle(task_id, join_handle.abort_handle());
+            }
+            if restarted_n > 0 {
+                tracing::info!(
+                    target: "codex_scheduling::monitor",
+                    count = restarted_n,
+                    "scheduling.resume.monitors_respawned"
+                );
+            }
+        }
+
         // Phase 4: persist once after hydration so subsequent restarts see
         // the corrected monitor statuses (Running → Interrupted) even if
         // no other mutation happens this session.

@@ -8,7 +8,7 @@ pub(crate) mod cron_spec;
 pub(crate) mod crop_figure;
 pub(crate) mod loop_tool;
 pub(crate) mod loop_tool_spec;
-mod monitor;
+pub(crate) mod monitor;
 pub(crate) mod monitor_spec;
 #[cfg(feature = "data")]
 pub(crate) mod data;

@@ -28,6 +28,14 @@ pub struct MonitorTask {
     /// see *that* lines came in without seeing each one.
     #[serde(default = "default_background")]
     pub background: bool,
+    /// When `true`, on session resume any monitor that was `Running` (and
+    /// therefore got marked `Interrupted` by the hydration path) is
+    /// respawned with the same command and task_id. Off by default —
+    /// only set this for safely-restartable commands like `tail -F`,
+    /// `watch`, or long-lived servers. Never set for one-shot or
+    /// destructive commands (`cargo build`, `git push`, batch jobs).
+    #[serde(default)]
+    pub restart_on_resume: bool,
 }
 
 fn default_background() -> bool {
@@ -36,10 +44,14 @@ fn default_background() -> bool {
 
 impl MonitorTask {
     pub fn new(command: String) -> Self {
-        Self::new_with_background(command, true)
+        Self::new_with_options(command, true, false)
     }
 
     pub fn new_with_background(command: String, background: bool) -> Self {
+        Self::new_with_options(command, background, false)
+    }
+
+    pub fn new_with_options(command: String, background: bool, restart_on_resume: bool) -> Self {
         Self {
             id: TaskId::new(),
             command,
@@ -49,6 +61,7 @@ impl MonitorTask {
             stopped_at: None,
             lines_emitted: 0,
             background,
+            restart_on_resume,
         }
     }
 }

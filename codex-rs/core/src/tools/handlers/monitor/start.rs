@@ -70,13 +70,18 @@ impl ToolHandler for MonitorStartHandler {
             )
         })?;
 
-        let task = MonitorTask::new_with_background(args.command.clone(), args.background);
+        let task = MonitorTask::new_with_options(
+            args.command.clone(),
+            args.background,
+            args.restart_on_resume,
+        );
         let task_id = runtime.registry.insert(task);
         tracing::info!(
             target: "codex_scheduling::monitor",
             task_id = %task_id,
             command = %args.command,
             background = args.background,
+            restart_on_resume = args.restart_on_resume,
             "monitor.started"
         );
         session.persist_scheduling_state();
@@ -123,7 +128,7 @@ impl ToolHandler for MonitorStartHandler {
     }
 }
 
-async fn run_monitor(
+pub(crate) async fn run_monitor(
     task_id: TaskId,
     command: String,
     registry: Arc<codex_scheduling::MonitorRegistry>,

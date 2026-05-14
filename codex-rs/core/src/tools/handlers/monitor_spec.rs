@@ -14,6 +14,7 @@ pub const MONITOR_START_TOOL_NAME: &str = "monitor_start";
 pub const MONITOR_LIST_TOOL_NAME: &str = "monitor_list";
 pub const MONITOR_STOP_TOOL_NAME: &str = "monitor_stop";
 pub const MONITOR_WAIT_TOOL_NAME: &str = "monitor_wait";
+pub const MONITOR_WATCH_FOR_TOOL_NAME: &str = "monitor_watch_for";
 
 // @agent-facing
 pub fn create_monitor_start_tool() -> ToolSpec {
@@ -78,6 +79,64 @@ Returns each monitor's task_id, command, status (Pending / Running / Completed /
         strict: false,
         defer_loading: None,
         parameters: JsonSchema::object(BTreeMap::new(), Some(Vec::new()), Some(false.into())),
+        output_schema: None,
+    })
+}
+
+// @agent-facing
+pub fn create_monitor_watch_for_tool() -> ToolSpec {
+    let properties = BTreeMap::from([
+        (
+            "task_id".to_string(),
+            JsonSchema::string(Some(
+                "Required. The task_id returned from monitor_start.".to_string(),
+            )),
+        ),
+        (
+            "pattern".to_string(),
+            JsonSchema::string(Some(
+                "Required. Literal substring to look for in each output line (case-sensitive). The call returns the moment a matching line appears on stdout or stderr. The tail buffer is also scanned first so matches that happened before this call started are not missed."
+                    .to_string(),
+            )),
+        ),
+        (
+            "timeout_seconds".to_string(),
+            JsonSchema::number(Some(
+                "Optional. Maximum seconds to wait before returning even if no line has matched yet. Omit to wait indefinitely — the call stays alive until either (a) a matching line appears, or (b) the subprocess terminates without ever matching."
+                    .to_string(),
+            )),
+        ),
+    ]);
+
+    ToolSpec::Function(ResponsesApiTool {
+        name: MONITOR_WATCH_FOR_TOOL_NAME.to_string(),
+        description: r#"Block until a running monitor emits a line containing `pattern`, or until the subprocess terminates without ever matching, or until an explicit `timeout_seconds` fires. Lighter than `monitor_wait` when the caller only cares about a specific event (a phase boundary, an error keyword, a "ready" signal) rather than the final result.
+
+By default this waits indefinitely. Matching is a literal substring on the raw line payload (not the `[stdout]` / `[stderr]` tag).
+
+Returns: {
+  matched: bool,
+  matching_line: string | null,
+  stream: "stdout" | "stderr" | null,
+  terminated_without_match: bool,
+  timed_out: bool
+}.
+
+Use when:
+- The user asked you to react to a *specific* phrase in the output ("tell me when the build prints 'warning:'", "alert me when the server says 'listening on port'", "wait for 'PANIC' to appear").
+- You want to act mid-stream without waiting for the full subprocess to finish.
+
+Don't use when:
+- The user wants the *final result* of the command, including exit status — use `monitor_wait` instead.
+- The user wants to keep watching forever — just call `monitor_start` with `background=false` and let the per-line stream render in chat."#
+            .to_string(),
+        strict: false,
+        defer_loading: None,
+        parameters: JsonSchema::object(
+            properties,
+            Some(vec!["task_id".to_string(), "pattern".to_string()]),
+            Some(false.into()),
+        ),
         output_schema: None,
     })
 }

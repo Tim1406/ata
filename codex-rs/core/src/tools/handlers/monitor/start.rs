@@ -81,6 +81,13 @@ impl ToolHandler for MonitorStartHandler {
         );
         session.persist_scheduling_state();
 
+        // Create the broadcast channel **before** spawning the streaming
+        // task so any `monitor_watch_for` call that races in immediately can
+        // subscribe. Lines emitted before a subscriber attaches are also
+        // captured in the registry's tail buffer, so the watcher catches up
+        // by inspecting the tail before subscribing.
+        let watch_tx = runtime.register_watcher_channel(task_id.clone());
+
         let tx_sub = session.submission_tx();
         let session_for_task = session.clone();
         let registry = runtime.registry.clone();
@@ -98,6 +105,7 @@ impl ToolHandler for MonitorStartHandler {
                 tx_sub,
                 session_for_task,
                 background,
+                watch_tx,
             )
             .await;
         });
@@ -119,10 +127,11 @@ async fn run_monitor(
     task_id: TaskId,
     command: String,
     registry: Arc<codex_scheduling::MonitorRegistry>,
-    _runtime: Arc<MonitorRuntime>,
+    runtime: Arc<MonitorRuntime>,
     tx_sub: async_channel::Sender<Submission>,
     session: Arc<Session>,
     background: bool,
+    watch_tx: tokio::sync::broadcast::Sender<crate::scheduling_runtime::MonitorLine>,
 ) {
     let mut child = match Command::new("sh")
         .arg("-c")
@@ -134,6 +143,7 @@ async fn run_monitor(
         Ok(c) => c,
         Err(err) => {
             registry.mark_terminal(&task_id, TaskStatus::Failed, Utc::now());
+            runtime.drop_watcher_channel(&task_id);
             tracing::warn!(
                 target: "codex_scheduling::monitor",
                 task_id = %task_id,
@@ -160,6 +170,7 @@ async fn run_monitor(
         Some(s) => s,
         None => {
             registry.mark_terminal(&task_id, TaskStatus::Failed, Utc::now());
+            runtime.drop_watcher_channel(&task_id);
             emit_terminate_summary(
                 &task_id,
                 &command,
@@ -180,6 +191,7 @@ async fn run_monitor(
         let registry_for_stderr = registry.clone();
         let task_id_for_stderr = task_id.clone();
         let session_for_stderr = session.clone();
+        let watch_tx_for_stderr = watch_tx.clone();
         Some(tokio::spawn(async move {
             let mut reader = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = reader.next_line().await {
@@ -190,6 +202,7 @@ async fn run_monitor(
                     &registry_for_stderr,
                     &session_for_stderr,
                     background,
+                    &watch_tx_for_stderr,
                 )
                 .await;
             }
@@ -201,7 +214,10 @@ async fn run_monitor(
     loop {
         match stdout_reader.next_line().await {
             Ok(Some(line)) => {
-                emit_line(&task_id, "stdout", &line, &registry, &session, background).await;
+                emit_line(
+                    &task_id, "stdout", &line, &registry, &session, background, &watch_tx,
+                )
+                .await;
             }
             Ok(None) => break,
             Err(err) => {
@@ -224,6 +240,10 @@ async fn run_monitor(
     // Phase 4: persist the final status so resume sees Completed/Failed
     // instead of the stale Running.
     session.persist_scheduling_state();
+    // Drop the per-monitor broadcast channel. Active `monitor_watch_for`
+    // receivers wake up with `RecvError::Closed` and report
+    // `terminated_without_match` (or their own buffered match, if any).
+    runtime.drop_watcher_channel(&task_id);
 
     let lines_emitted = registry
         .list()
@@ -251,12 +271,18 @@ async fn emit_line(
     registry: &Arc<codex_scheduling::MonitorRegistry>,
     session: &Arc<Session>,
     background: bool,
+    watch_tx: &tokio::sync::broadcast::Sender<crate::scheduling_runtime::MonitorLine>,
 ) {
     // Always record the line so the `/scheduling` panel's `lines N` counter
     // climbs and the terminate-summary tail still has data. Only the
     // user-facing chat cell is gated by `background`.
     registry.record_line(task_id);
     registry.record_tail_line(task_id, format!("[{stream}] {line}"));
+    // Broadcast to any active `monitor_watch_for` subscribers regardless of
+    // `background` — watching is a tool-level concern, separate from chat
+    // visibility. `send` errors only when there are no subscribers, which
+    // is the common case; we ignore it.
+    let _ = watch_tx.send((stream.to_string(), line.to_string()));
     if background {
         return;
     }

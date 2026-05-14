@@ -11,12 +11,28 @@ use codex_scheduling::TaskId;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
+use tokio::sync::broadcast;
 use tokio::task::AbortHandle;
+
+/// One line streamed by a monitor: `(stream, line)`. `stream` is
+/// `"stdout"` or `"stderr"`.
+pub(crate) type MonitorLine = (String, String);
+
+/// Buffer size for the per-monitor broadcast channel. Lagging receivers
+/// (e.g. a slow `monitor_watch_for` on a chatty subprocess) get
+/// `RecvError::Lagged` and re-sync at the latest line. 256 is plenty for
+/// realistic loads and tiny in memory.
+const MONITOR_BROADCAST_CAPACITY: usize = 256;
 
 #[derive(Debug)]
 pub(crate) struct MonitorRuntime {
     pub registry: Arc<MonitorRegistry>,
     handles: Mutex<HashMap<TaskId, AbortHandle>>,
+    /// Per-monitor broadcast of `(stream, line)` events. Created on
+    /// `monitor_start`, dropped on terminate. `monitor_watch_for` subscribes
+    /// to this so it gets woken up the moment a matching line is emitted —
+    /// no polling, no eviction from the 40-line tail buffer.
+    watchers: Mutex<HashMap<TaskId, broadcast::Sender<MonitorLine>>>,
 }
 
 impl MonitorRuntime {
@@ -24,6 +40,7 @@ impl MonitorRuntime {
         Self {
             registry: Arc::new(MonitorRegistry::new()),
             handles: Mutex::new(HashMap::new()),
+            watchers: Mutex::new(HashMap::new()),
         }
     }
 
@@ -48,6 +65,39 @@ impl MonitorRuntime {
         } else {
             false
         }
+    }
+
+    /// Create a broadcast channel for this monitor and return the sender so
+    /// the streaming task can publish each line. Dropped when the monitor
+    /// terminates (via [`drop_watcher_channel`]) — any active receivers
+    /// observe `RecvError::Closed`.
+    pub fn register_watcher_channel(&self, id: TaskId) -> broadcast::Sender<MonitorLine> {
+        let (tx, _rx) = broadcast::channel(MONITOR_BROADCAST_CAPACITY);
+        self.watchers
+            .lock()
+            .expect("MonitorRuntime watchers mutex poisoned")
+            .insert(id, tx.clone());
+        tx
+    }
+
+    /// Subscribe a new receiver to a monitor's broadcast. Returns `None` if
+    /// the monitor never registered a channel or has already terminated.
+    pub fn subscribe(&self, id: &TaskId) -> Option<broadcast::Receiver<MonitorLine>> {
+        self.watchers
+            .lock()
+            .expect("MonitorRuntime watchers mutex poisoned")
+            .get(id)
+            .map(|tx| tx.subscribe())
+    }
+
+    /// Drop the broadcast channel for this monitor. Any active receivers
+    /// will see `RecvError::Closed` on their next `recv().await`. Called by
+    /// the streaming task once the subprocess has terminated.
+    pub fn drop_watcher_channel(&self, id: &TaskId) {
+        self.watchers
+            .lock()
+            .expect("MonitorRuntime watchers mutex poisoned")
+            .remove(id);
     }
 }
 

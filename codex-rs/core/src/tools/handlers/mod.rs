@@ -76,6 +76,7 @@ pub use monitor::MonitorListHandler;
 pub use monitor::MonitorStartHandler;
 pub use monitor::MonitorStopHandler;
 pub use monitor::MonitorWaitHandler;
+pub use monitor::MonitorWatchForHandler;
 #[cfg(feature = "data")]
 pub(crate) use data::DataBridgeHandler;
 pub use document_reader::DocumentReaderHandler;

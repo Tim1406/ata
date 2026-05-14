@@ -497,6 +497,7 @@ Do NOT use for fixed schedules (use `cron_agent`) or for repeated prompted itera
                         tool_allowlist: Some(vec![
                             "monitor_start".to_string(),
                             "monitor_wait".to_string(),
+                            "monitor_watch_for".to_string(),
                             "monitor_list".to_string(),
                             "monitor_stop".to_string(),
                         ]),

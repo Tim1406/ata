@@ -141,8 +141,15 @@ async fn run_monitor(
                 error = %err,
                 "monitor.spawn_failed"
             );
-            emit_terminate_summary(&task_id, &command, TaskStatus::Failed, Vec::new(), &tx_sub)
-                .await;
+            emit_terminate_summary(
+                &task_id,
+                &command,
+                TaskStatus::Failed,
+                Vec::new(),
+                &tx_sub,
+                Some(format!("failed to spawn subprocess: {err}")),
+            )
+            .await;
             return;
         }
     };
@@ -153,8 +160,15 @@ async fn run_monitor(
         Some(s) => s,
         None => {
             registry.mark_terminal(&task_id, TaskStatus::Failed, Utc::now());
-            emit_terminate_summary(&task_id, &command, TaskStatus::Failed, Vec::new(), &tx_sub)
-                .await;
+            emit_terminate_summary(
+                &task_id,
+                &command,
+                TaskStatus::Failed,
+                Vec::new(),
+                &tx_sub,
+                Some("subprocess stdout pipe was not captured".to_string()),
+            )
+            .await;
             return;
         }
     };
@@ -227,7 +241,7 @@ async fn run_monitor(
     );
 
     let tail = registry.tail_snapshot(&task_id);
-    emit_terminate_summary(&task_id, &command, status, tail, &tx_sub).await;
+    emit_terminate_summary(&task_id, &command, status, tail, &tx_sub, None).await;
 }
 
 async fn emit_line(
@@ -268,6 +282,7 @@ async fn emit_terminate_summary(
     status: TaskStatus,
     tail: Vec<String>,
     tx_sub: &async_channel::Sender<Submission>,
+    error: Option<String>,
 ) {
     let status_text = match status {
         TaskStatus::Completed => "completed",
@@ -275,6 +290,9 @@ async fn emit_terminate_summary(
         _ => "ended",
     };
     let mut body = format!("[monitor {task_id}] `{command}` {status_text}.");
+    if let Some(err) = error.as_ref() {
+        body.push_str(&format!("\nError: {err}"));
+    }
     if !tail.is_empty() {
         body.push_str("\nLast output:\n");
         for line in tail {

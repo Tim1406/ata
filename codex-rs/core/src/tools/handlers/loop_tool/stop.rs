@@ -59,6 +59,19 @@ impl ToolHandler for LoopStopHandler {
             runtime
                 .registry
                 .mark_terminal(&task_id, TaskStatus::Completed, Utc::now());
+            let iteration_count = runtime
+                .registry
+                .list()
+                .into_iter()
+                .find(|t| t.id == task_id)
+                .map(|t| t.iteration_count)
+                .unwrap_or(0);
+            tracing::info!(
+                target: "codex_scheduling::loop",
+                task_id = %task_id,
+                iteration_count = iteration_count,
+                "loop.stopped"
+            );
             session.persist_scheduling_state();
         }
         let response = LoopStopResponse { stopped: aborted };

@@ -48,8 +48,14 @@ impl ToolHandler for CronDeleteHandler {
             )
         })?;
 
-        let deleted = registry.remove(&TaskId::from(args.task_id)).is_some();
+        let task_id = TaskId::from(args.task_id);
+        let deleted = registry.remove(&task_id).is_some();
         if deleted {
+            tracing::info!(
+                target: "codex_scheduling::cron",
+                task_id = %task_id,
+                "cron.deleted"
+            );
             session.persist_scheduling_state();
         }
         let response = CronDeleteResponse { deleted };

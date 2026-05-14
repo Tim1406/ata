@@ -177,6 +177,11 @@ pub async fn delete_scheduling_task(
 ) {
     use codex_protocol::protocol::SchedulingTaskKind;
     let id = codex_scheduling::TaskId::from(task_id);
+    let kind_str = match kind {
+        SchedulingTaskKind::Cron => "cron",
+        SchedulingTaskKind::Monitor => "monitor",
+        SchedulingTaskKind::Loop => "loop",
+    };
     match kind {
         SchedulingTaskKind::Cron => {
             if let Some(reg) = sess.cron_registry() {
@@ -196,6 +201,12 @@ pub async fn delete_scheduling_task(
             }
         }
     }
+    tracing::info!(
+        target: "codex_scheduling::panel",
+        task_id = %id,
+        kind = kind_str,
+        "panel.row_deleted"
+    );
     // Phase 4: durable state is now stale; rewrite so the deletion sticks
     // across `/quit`.
     sess.persist_scheduling_state();
@@ -962,6 +973,12 @@ pub(super) async fn submission_loop(
                         // `loop_stop` already terminated this loop; drop
                         // submissions that were queued before the abort
                         // landed so the agent doesn't run extra turns.
+                        tracing::debug!(
+                            target: "codex_scheduling::loop",
+                            submission_id = %sub.id,
+                            reason = "stop_race",
+                            "loop.fire_dropped"
+                        );
                         false
                     } else {
                         user_input_or_turn(&sess, sub.id.clone(), sub.op).await;

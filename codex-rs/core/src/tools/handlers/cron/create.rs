@@ -49,6 +49,8 @@ impl ToolHandler for CronCreateHandler {
             )
         })?;
 
+        let cron_expr = args.cron_expr.clone();
+        let background = args.background;
         let job = CronJob::new_with_background(args.cron_expr, args.prompt, args.background)
             .map_err(|err| {
                 FunctionCallError::RespondToModel(format!("cron_create rejected: {err}"))
@@ -56,6 +58,13 @@ impl ToolHandler for CronCreateHandler {
 
         let now = Utc::now();
         let task_id = registry.insert(job, now);
+        tracing::info!(
+            target: "codex_scheduling::cron",
+            task_id = %task_id,
+            cron_expr = %cron_expr,
+            background = background,
+            "cron.created"
+        );
         session.persist_scheduling_state();
 
         let next_fire_at = registry

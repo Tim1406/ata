@@ -74,6 +74,13 @@ impl ToolHandler for LoopStartHandler {
             args.background,
         );
         let task_id = runtime.registry.insert(task);
+        tracing::info!(
+            target: "codex_scheduling::loop",
+            task_id = %task_id,
+            interval_seconds = args.interval_seconds,
+            background = args.background,
+            "loop.created"
+        );
         session.persist_scheduling_state();
 
         let tx_sub = session.submission_tx();
@@ -125,10 +132,29 @@ pub(crate) async fn run_loop(
             .status(&task_id)
             .is_none_or(|s| s.is_terminal())
         {
+            tracing::debug!(
+                target: "codex_scheduling::loop",
+                task_id = %task_id,
+                reason = "task_terminal",
+                "loop.fire_dropped"
+            );
             return;
         }
         let now = Utc::now();
         registry.record_iteration(&task_id, now);
+        let iteration_count = registry
+            .list()
+            .into_iter()
+            .find(|t| t.id == task_id)
+            .map(|t| t.iteration_count)
+            .unwrap_or(0);
+        tracing::info!(
+            target: "codex_scheduling::loop",
+            task_id = %task_id,
+            iteration_count = iteration_count,
+            interval_seconds = interval.as_secs(),
+            "loop.fired"
+        );
         let op = Op::UserInput {
             items: vec![UserInput::Text {
                 text: format!("[loop {task_id}] {prompt}"),

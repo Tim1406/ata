@@ -443,7 +443,12 @@ impl Session {
             .unwrap_or_default();
         let snap = codex_scheduling::SchedulingSnapshot::new(cron_jobs, monitors, loops);
         if let Err(err) = codex_scheduling::save_scheduling_state(path, &snap) {
-            tracing::warn!(error = %err, path = %path.display(), "failed to persist scheduling state");
+            tracing::warn!(
+                target: "codex_scheduling::persist",
+                error = %err,
+                path = %path.display(),
+                "scheduling.persist.save_failed"
+            );
         }
     }
 
@@ -1076,11 +1081,13 @@ impl Session {
                         {
                             match codex_scheduling::load_scheduling_state(path) {
                                 Ok(Some(snap)) => {
+                                    let cron_n = snap.cron_jobs.len();
                                     cron_reg.hydrate(snap.cron_jobs);
                                     // Subprocesses are dead — surface
                                     // non-terminal monitors as `Interrupted`
                                     // rather than misleadingly showing
                                     // `Running`. Users can re-create if needed.
+                                    let mut interrupted_n = 0usize;
                                     let monitors = snap
                                         .monitors
                                         .into_iter()
@@ -1088,10 +1095,12 @@ impl Session {
                                             if !m.status.is_terminal() {
                                                 m.status = codex_scheduling::TaskStatus::Interrupted;
                                                 m.stopped_at = Some(chrono::Utc::now());
+                                                interrupted_n += 1;
                                             }
                                             m
                                         })
                                         .collect::<Vec<_>>();
+                                    let mon_n = monitors.len();
                                     mon_rt.registry.hydrate(monitors);
                                     // Loops: hydrate data; per-loop tokio
                                     // tasks must be re-spawned in a follow-up
@@ -1099,14 +1108,25 @@ impl Session {
                                     // submission channel here yet — that
                                     // lands in the loop respawn block after
                                     // session creation).
+                                    let loop_n = snap.loops.len();
                                     lp_rt.registry.hydrate(snap.loops);
+                                    tracing::info!(
+                                        target: "codex_scheduling::persist",
+                                        thread_id = %thread_id,
+                                        cron_count = cron_n,
+                                        monitor_count = mon_n,
+                                        monitors_marked_interrupted = interrupted_n,
+                                        loop_count = loop_n,
+                                        "scheduling.resume.hydrated"
+                                    );
                                 }
                                 Ok(None) => {}
                                 Err(err) => {
                                     tracing::warn!(
+                                        target: "codex_scheduling::persist",
                                         error = %err,
                                         path = %path.display(),
-                                        "failed to load scheduling state; starting fresh"
+                                        "scheduling.persist.load_failed"
                                     );
                                 }
                             }

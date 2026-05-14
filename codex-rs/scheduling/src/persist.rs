@@ -83,6 +83,14 @@ pub fn load(path: &Path) -> io::Result<Option<SchedulingSnapshot>> {
         Ok(bytes) => {
             let snap: SchedulingSnapshot = serde_json::from_slice(&bytes)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            tracing::info!(
+                target: "codex_scheduling::persist",
+                path = %path.display(),
+                cron_count = snap.cron_jobs.len(),
+                monitor_count = snap.monitors.len(),
+                loop_count = snap.loops.len(),
+                "scheduling.persist.loaded"
+            );
             Ok(Some(snap))
         }
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
@@ -106,6 +114,15 @@ pub fn save(path: &Path, snapshot: &SchedulingSnapshot) -> io::Result<()> {
         f.sync_all()?;
     }
     fs::rename(&tmp, path)?;
+    tracing::debug!(
+        target: "codex_scheduling::persist",
+        path = %path.display(),
+        cron_count = snapshot.cron_jobs.len(),
+        monitor_count = snapshot.monitors.len(),
+        loop_count = snapshot.loops.len(),
+        bytes = body.len(),
+        "scheduling.persist.saved"
+    );
     Ok(())
 }
 

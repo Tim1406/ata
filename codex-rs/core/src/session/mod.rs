@@ -726,6 +726,12 @@ impl Codex {
                     let due = cron_registry.take_due(chrono::Utc::now());
                     let any_fired = !due.is_empty();
                     for (id, prompt, background) in due {
+                        tracing::info!(
+                            target: "codex_scheduling::cron",
+                            task_id = %id,
+                            background = background,
+                            "cron.fired"
+                        );
                         let op = Op::UserInput {
                             items: vec![UserInput::Text {
                                 text: prompt,
@@ -779,6 +785,7 @@ impl Codex {
                 .filter(|task| !task.status.is_terminal())
                 .filter(|task| task.interval.is_some())
                 .collect::<Vec<_>>();
+            let respawned_n = resumed.len();
             for task in resumed {
                 let task_id = task.id.clone();
                 let prompt = task.prompt.clone();
@@ -786,6 +793,14 @@ impl Codex {
                     .interval
                     .expect("dynamic-pacing loops not yet supported on resume");
                 let background = task.background;
+                tracing::info!(
+                    target: "codex_scheduling::loop",
+                    task_id = %task_id,
+                    interval_seconds = interval.as_secs(),
+                    iteration_count = task.iteration_count,
+                    background = background,
+                    "loop.resumed"
+                );
                 let registry = loop_runtime.registry.clone();
                 let tx_sub_for_loop = session.submission_tx.clone();
                 let join_handle = tokio::spawn(async move {
@@ -800,6 +815,13 @@ impl Codex {
                     .await;
                 });
                 loop_runtime.store_handle(task.id.clone(), join_handle.abort_handle());
+            }
+            if respawned_n > 0 {
+                tracing::info!(
+                    target: "codex_scheduling::loop",
+                    count = respawned_n,
+                    "scheduling.resume.loops_respawned"
+                );
             }
         }
 

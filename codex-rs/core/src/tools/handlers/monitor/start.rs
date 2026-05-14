@@ -72,6 +72,13 @@ impl ToolHandler for MonitorStartHandler {
 
         let task = MonitorTask::new_with_background(args.command.clone(), args.background);
         let task_id = runtime.registry.insert(task);
+        tracing::info!(
+            target: "codex_scheduling::monitor",
+            task_id = %task_id,
+            command = %args.command,
+            background = args.background,
+            "monitor.started"
+        );
         session.persist_scheduling_state();
 
         let tx_sub = session.submission_tx();
@@ -127,7 +134,13 @@ async fn run_monitor(
         Ok(c) => c,
         Err(err) => {
             registry.mark_terminal(&task_id, TaskStatus::Failed, Utc::now());
-            tracing::warn!("monitor_start failed to spawn `{command}`: {err}");
+            tracing::warn!(
+                target: "codex_scheduling::monitor",
+                task_id = %task_id,
+                command = %command,
+                error = %err,
+                "monitor.spawn_failed"
+            );
             emit_terminate_summary(&task_id, &command, TaskStatus::Failed, Vec::new(), &tx_sub)
                 .await;
             return;
@@ -197,6 +210,21 @@ async fn run_monitor(
     // Phase 4: persist the final status so resume sees Completed/Failed
     // instead of the stale Running.
     session.persist_scheduling_state();
+
+    let lines_emitted = registry
+        .list()
+        .into_iter()
+        .find(|m| m.id == task_id)
+        .map(|m| m.lines_emitted)
+        .unwrap_or(0);
+    tracing::info!(
+        target: "codex_scheduling::monitor",
+        task_id = %task_id,
+        command = %command,
+        status = ?status,
+        lines_emitted = lines_emitted,
+        "monitor.terminated"
+    );
 
     let tail = registry.tail_snapshot(&task_id);
     emit_terminate_summary(&task_id, &command, status, tail, &tx_sub).await;

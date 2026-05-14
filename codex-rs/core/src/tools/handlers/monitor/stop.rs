@@ -56,6 +56,11 @@ impl ToolHandler for MonitorStopHandler {
             runtime
                 .registry
                 .mark_terminal(&task_id, TaskStatus::Killed, Utc::now());
+            tracing::info!(
+                target: "codex_scheduling::monitor",
+                task_id = %task_id,
+                "monitor.stopped"
+            );
             session.persist_scheduling_state();
         }
         let response = MonitorStopResponse { stopped: aborted };

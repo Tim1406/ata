@@ -17,7 +17,6 @@ use super::MonitorWaitArgs;
 use super::MonitorWaitResponse;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
-const DEFAULT_TIMEOUT_SECONDS: u64 = 600;
 
 pub struct MonitorWaitHandler;
 
@@ -48,7 +47,13 @@ impl ToolHandler for MonitorWaitHandler {
 
         let args: MonitorWaitArgs = parse_arguments(&arguments)?;
         let task_id: TaskId = args.task_id.clone().into();
-        let timeout = Duration::from_secs(args.timeout_seconds.unwrap_or(DEFAULT_TIMEOUT_SECONDS));
+        // `timeout_seconds = None` means wait forever — the sub-agent's turn
+        // stays alive as long as it takes the subprocess to terminate. The
+        // tokio runtime keeps the future polled at no LLM cost since this
+        // is pure Rust polling against an in-memory registry.
+        let deadline = args
+            .timeout_seconds
+            .map(|secs| Instant::now() + Duration::from_secs(secs));
 
         let runtime = session.monitor_runtime().ok_or_else(|| {
             FunctionCallError::RespondToModel(
@@ -57,7 +62,6 @@ impl ToolHandler for MonitorWaitHandler {
         })?;
 
         let registry = runtime.registry.clone();
-        let deadline = Instant::now() + timeout;
 
         // Confirm the monitor exists at all before we start polling.
         if !registry.list().into_iter().any(|m| m.id == task_id) {
@@ -79,7 +83,9 @@ impl ToolHandler for MonitorWaitHandler {
                 }
                 _ => {}
             }
-            if Instant::now() >= deadline {
+            if let Some(d) = deadline
+                && Instant::now() >= d
+            {
                 break (task.status, true);
             }
             tokio::time::sleep(POLL_INTERVAL).await;

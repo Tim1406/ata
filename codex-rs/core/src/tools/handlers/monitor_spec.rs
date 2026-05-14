@@ -94,7 +94,7 @@ pub fn create_monitor_wait_tool() -> ToolSpec {
         (
             "timeout_seconds".to_string(),
             JsonSchema::number(Some(
-                "Optional. Maximum seconds to wait before returning even if the monitor is still running. Defaults to 600 (10 minutes)."
+                "Optional. Maximum seconds to wait before returning even if the monitor is still running. Omit to wait indefinitely — the call stays alive for as long as the subprocess takes (minutes, hours, days). Set a value only when the caller explicitly wants to give up after some bound (e.g. \"check back in 30 seconds\")."
                     .to_string(),
             )),
         ),
@@ -104,7 +104,9 @@ pub fn create_monitor_wait_tool() -> ToolSpec {
         name: MONITOR_WAIT_TOOL_NAME.to_string(),
         description: r#"Block until a running monitor terminates and return its final status plus the tail of its output. Use this right after monitor_start when you want the result in the same turn instead of polling.
 
-Returns: { status: "Completed" | "Failed" | "Killed" | "Running" (on timeout), tail: [string] }.
+By default this call waits indefinitely — there is no internal time cap. The function sits in a cheap polling loop against an in-memory registry, costs no LLM tokens while waiting, and returns the instant the subprocess actually exits. Set `timeout_seconds` only when the caller explicitly wants a bounded wait.
+
+Returns: { status: "Completed" | "Failed" | "Killed" | "Running" (only if an explicit timeout fires), tail: [string] }.
 
 Use when:
 - You started a monitor and want to use its output in the same response (e.g. report the result, summarize errors).

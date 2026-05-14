@@ -3949,7 +3949,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
     let session = Session {
         conversation_id: thread_id,
         installation_id: "11111111-1111-4111-8111-111111111111".to_string(),
-        tx_event,
+        tx_event: tx_event.clone(),
         agent_status: agent_status_tx,
         out_of_band_elicitation_paused: watch::channel(false).0,
         state: Mutex::new(state),
@@ -3970,7 +3970,9 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         monitor_runtime: None,
         loop_runtime: None,
         submission_tx: async_channel::bounded(1).0,
+        scheduling_event_tx: tx_event,
         scheduling_is_root: true,
+        scheduling_state_path: None,
     };
 
     (session, turn_context)
@@ -5682,7 +5684,7 @@ where
     let session = Arc::new(Session {
         conversation_id: thread_id,
         installation_id: "11111111-1111-4111-8111-111111111111".to_string(),
-        tx_event,
+        tx_event: tx_event.clone(),
         agent_status: agent_status_tx,
         out_of_band_elicitation_paused: watch::channel(false).0,
         state: Mutex::new(state),
@@ -5703,7 +5705,9 @@ where
         monitor_runtime: None,
         loop_runtime: None,
         submission_tx: async_channel::bounded(1).0,
+        scheduling_event_tx: tx_event.clone(),
         scheduling_is_root: true,
+        scheduling_state_path: None,
     });
 
     (session, turn_context, rx_event)

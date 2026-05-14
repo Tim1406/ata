@@ -8819,20 +8819,25 @@ impl ChatWidget {
         &mut self,
         event: codex_protocol::protocol::SchedulingMonitorOutputDeltaEvent,
     ) {
-        // v1: render each line as an info-style chat cell. The line is
-        // ephemeral (not persisted to rollouts, not fed to the LLM) — it's
-        // only here for the user to watch.
+        // Render each line as a chat cell. The line is ephemeral (not
+        // persisted to rollouts, not fed to the LLM) — it's only here for
+        // the user to watch. Stderr lines colorize the payload red so
+        // build errors / test failures pop visually; stdout stays plain.
         let short_id: String = event.task_id.chars().take(6).collect();
-        let tag = if event.stream == "stderr" {
-            "err"
-        } else {
-            "out"
-        };
+        let is_stderr = event.stream == "stderr";
+        let tag = if is_stderr { "err" } else { "out" };
         let line = event.line.trim_end_matches('\n');
         if line.is_empty() {
             return;
         }
-        self.add_info_message(format!("[m {short_id} {tag}] {line}"), None);
+        if is_stderr {
+            self.add_plain_history_lines(vec![Line::from(vec![
+                format!("[m {short_id} {tag}] ").into(),
+                line.to_string().red(),
+            ])]);
+        } else {
+            self.add_info_message(format!("[m {short_id} {tag}] {line}"), None);
+        }
     }
 
     fn approval_preset_actions(

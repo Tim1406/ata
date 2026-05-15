@@ -72,6 +72,7 @@ pub use cron::CronListHandler;
 pub use loop_tool::LoopListHandler;
 pub use loop_tool::LoopStartHandler;
 pub use loop_tool::LoopStopHandler;
+pub use loop_tool::LoopWakeupHandler;
 pub use monitor::MonitorListHandler;
 pub use monitor::MonitorStartHandler;
 pub use monitor::MonitorStopHandler;

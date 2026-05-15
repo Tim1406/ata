@@ -114,6 +114,26 @@ impl LoopRegistry {
         }
     }
 
+    /// Clear `next_wakeup_at`. Dynamic loops call this immediately after
+    /// firing so the per-loop task doesn't refire on the stale timestamp;
+    /// the agent must call `loop_wakeup` to schedule the next iteration.
+    pub fn clear_next_wakeup(&self, id: &TaskId) {
+        let mut loops = self.loops.lock().expect("LoopRegistry mutex poisoned");
+        if let Some(task) = loops.get_mut(id) {
+            task.next_wakeup_at = None;
+        }
+    }
+
+    /// Replace the prompt that gets fired on subsequent iterations.
+    /// `loop_wakeup` calls this when the agent wants the next firing to
+    /// ask a different question than the original loop_start prompt.
+    pub fn update_prompt(&self, id: &TaskId, prompt: String) {
+        let mut loops = self.loops.lock().expect("LoopRegistry mutex poisoned");
+        if let Some(task) = loops.get_mut(id) {
+            task.prompt = prompt;
+        }
+    }
+
     /// Mark a loop terminal (stopped by user or completed naturally).
     pub fn mark_terminal(&self, id: &TaskId, status: TaskStatus, stopped_at: DateTime<Utc>) {
         let mut loops = self.loops.lock().expect("LoopRegistry mutex poisoned");

@@ -783,37 +783,64 @@ impl Codex {
                 .list()
                 .into_iter()
                 .filter(|task| !task.status.is_terminal())
-                .filter(|task| task.interval.is_some())
                 .collect::<Vec<_>>();
             let respawned_n = resumed.len();
             for task in resumed {
                 let task_id = task.id.clone();
                 let prompt = task.prompt.clone();
-                let interval = task
-                    .interval
-                    .expect("dynamic-pacing loops not yet supported on resume");
                 let background = task.background;
-                tracing::info!(
-                    target: "codex_scheduling::loop",
-                    task_id = %task_id,
-                    interval_seconds = interval.as_secs(),
-                    iteration_count = task.iteration_count,
-                    background = background,
-                    "loop.resumed"
-                );
                 let registry = loop_runtime.registry.clone();
                 let tx_sub_for_loop = session.submission_tx.clone();
-                let join_handle = tokio::spawn(async move {
-                    crate::tools::handlers::loop_tool::run_loop(
-                        task_id,
-                        prompt,
-                        interval,
-                        background,
-                        registry,
-                        tx_sub_for_loop,
-                    )
-                    .await;
-                });
+                let join_handle = match task.interval {
+                    Some(interval) => {
+                        tracing::info!(
+                            target: "codex_scheduling::loop",
+                            task_id = %task_id,
+                            mode = "fixed",
+                            interval_seconds = interval.as_secs(),
+                            iteration_count = task.iteration_count,
+                            background = background,
+                            "loop.resumed"
+                        );
+                        tokio::spawn(async move {
+                            crate::tools::handlers::loop_tool::run_loop(
+                                task_id,
+                                prompt,
+                                interval,
+                                background,
+                                registry,
+                                tx_sub_for_loop,
+                            )
+                            .await;
+                        })
+                    }
+                    None => {
+                        // Dynamic loop. The saved `next_wakeup_at` tells us
+                        // when to fire next; if it was in the past at save
+                        // time, the runner fires immediately on resume.
+                        // If it's None (agent never scheduled), the runner
+                        // idles waiting for the agent's next `loop_wakeup`.
+                        tracing::info!(
+                            target: "codex_scheduling::loop",
+                            task_id = %task_id,
+                            mode = "dynamic",
+                            next_wakeup_at = ?task.next_wakeup_at,
+                            iteration_count = task.iteration_count,
+                            background = background,
+                            "loop.resumed"
+                        );
+                        let task_id_for_run = task.id.clone();
+                        tokio::spawn(async move {
+                            crate::tools::handlers::loop_tool::run_loop_dynamic(
+                                task_id_for_run,
+                                background,
+                                registry,
+                                tx_sub_for_loop,
+                            )
+                            .await;
+                        })
+                    }
+                };
                 loop_runtime.store_handle(task.id.clone(), join_handle.abort_handle());
             }
             if respawned_n > 0 {

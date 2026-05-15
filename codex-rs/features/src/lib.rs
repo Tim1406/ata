@@ -1267,7 +1267,7 @@ pub const FEATURES: &[FeatureSpec] = &[
         key: "scheduling",
         stage: Stage::Experimental {
             name: "Scheduling",
-            menu_description: "Schedule prompts (Cron), monitor background output, and run loops — in-session.",
+            menu_description: "In-session cron/loop/monitor tools. Tasks live with the chat session. Turn OFF to use the legacy job-manager skill instead (daemon-based, survives quit). Can't use both at once.",
             announcement: "",
         },
         default_enabled: false,

@@ -11,6 +11,8 @@ policy:
 
 Scheduled jobs run skills or prompts automatically on a cron schedule, at fixed intervals, or in response to events (file changes, HTTP polls, webhooks). The scheduler daemon runs in the background and fires jobs when due.
 
+> **Note:** This skill is hidden while the experimental `Scheduling` feature is ON. Those two systems are mutually exclusive — turn `Scheduling` OFF in `/experimental` to use this skill.
+
 ## Architecture
 
 ```

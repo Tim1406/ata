@@ -486,12 +486,9 @@ Use `cron_agent` only as an opt-in for multi-step cron orchestrations where a fo
                 (
                     "monitor_agent".to_string(),
                     AgentRoleConfig {
-                        description: Some(r#"`monitor_agent` owns all subprocess-monitoring work in this session.
-You MUST spawn `monitor_agent` for any request that involves starting, listing, or stopping a streaming monitor of a shell command — including "tail this log", "watch the build", "tell me as new lines arrive", "stop monitor X".
-You MUST NOT call `monitor_start`, `monitor_wait`, `monitor_list`, or `monitor_stop` yourself; delegate to `monitor_agent` and let it pick the right tool.
-This agent has access ONLY to `monitor_start`, `monitor_wait`, `monitor_list`, `monitor_stop`.
-Trigger phrases that route here (any of these): "watch / tail / monitor / stream / observe", "keep an eye on X", "tell me when X finishes / completes / is done", "let me know when / once X", "alert me if X happens", "wait for X to finish / complete / settle", "show me what X does / what cargo does / each line of X", "report progress of <long command>", "run X and tell me the result", "stop the monitor / list monitors".
-Do NOT use for fixed schedules (use `cron_agent`) or for repeated prompted iterations (use `loop_agent`)."#.to_string()),
+                        description: Some(r#"`monitor_agent` is a focused, tool-restricted worker for subprocess monitors (access ONLY to `monitor_start`, `monitor_wait`, `monitor_watch_for`, `monitor_list`, `monitor_stop`).
+DEFAULT BEHAVIOR: call `monitor_start` / `monitor_wait` / `monitor_watch_for` / `monitor_list` / `monitor_stop` yourself in the main session for typical monitoring requests — the user keeps full context and there is no spawn latency.
+Use `monitor_agent` only as an opt-in for multi-step monitor orchestrations where a focused scope genuinely helps. For one-off "tail this log", "watch the build", or "stop the monitor", do it inline."#.to_string()),
                         config_file: Some("monitor_agent.toml".to_string().parse().unwrap_or_default()),
                         nickname_candidates: None,
                         tool_allowlist: Some(vec![

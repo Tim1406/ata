@@ -41,6 +41,27 @@ pub fn create_cron_create_tool() -> ToolSpec {
                     .to_string(),
             )),
         ),
+        (
+            "max_firings".to_string(),
+            JsonSchema::integer(Some(
+                "Optional. Stop after this many total firings, then mark the cron Completed. Use `1` for one-shot reminders (\"at 3pm tomorrow, do X\" → cron_expr matching 3pm + max_firings=1; the cron stops itself after that single fire, no need to delete). Omit (default) = run forever until manually deleted.\n\n\
+                Examples:\n\
+                - \"remind me at 4pm today to check X\" → cron_expr=\"0 0 16 * * *\", max_firings=1\n\
+                - \"every 5 min for the next hour\" → cron_expr=\"0 */5 * * * *\", max_firings=12"
+                    .to_string(),
+            )),
+        ),
+        (
+            "until".to_string(),
+            JsonSchema::string(Some(
+                "Optional. Stop firing after this RFC3339 timestamp, then mark the cron Completed. Use for finite-duration schedules.\n\n\
+                Examples:\n\
+                - \"every weekday at 9am until next Friday\" → cron_expr=\"0 0 9 * * 1-5\", until=\"2026-05-22T23:59:59Z\"\n\
+                - \"hourly for the next 8 hours\" → cron_expr=\"0 0 * * * *\", until set to 8h from now\n\n\
+                If both `max_firings` and `until` are set, whichever triggers first ends the job."
+                    .to_string(),
+            )),
+        ),
     ]);
 
     ToolSpec::Function(ResponsesApiTool {
@@ -52,6 +73,8 @@ USE THIS TOOL ONLY when the user wants firings tied to wall-clock times:
 - "at the top of every hour"
 - "daily at 09:00"
 - "on the 1st of every month"
+- "at 3pm tomorrow, remind me to X" — set `max_firings: 1` so the cron stops itself after one fire
+- "every weekday at 9am until next Friday" — set `until: "2026-05-22T23:59:59Z"`
 
 Research-workflow examples that fit naturally here (compose with the research skills like `$paper-discovery`, `$hn-synthesis`, `$kb`):
 - "every weekday at 9am, run $paper-discovery on new transformer-architecture papers" — daily literature review

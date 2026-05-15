@@ -51,10 +51,29 @@ impl ToolHandler for CronCreateHandler {
 
         let cron_expr = args.cron_expr.clone();
         let background = args.background;
-        let job = CronJob::new_with_background(args.cron_expr, args.prompt, args.background)
-            .map_err(|err| {
-                FunctionCallError::RespondToModel(format!("cron_create rejected: {err}"))
-            })?;
+        let max_firings = args.max_firings;
+        let until = match args.until.as_deref() {
+            None => None,
+            Some(s) => Some(
+                chrono::DateTime::parse_from_rfc3339(s)
+                    .map_err(|err| {
+                        FunctionCallError::RespondToModel(format!(
+                            "cron_create: `until` must be a valid RFC3339 timestamp (e.g. \"2026-05-16T17:00:00Z\"): {err}"
+                        ))
+                    })?
+                    .with_timezone(&Utc),
+            ),
+        };
+        let job = CronJob::new_with_options(
+            args.cron_expr,
+            args.prompt,
+            args.background,
+            max_firings,
+            until,
+        )
+        .map_err(|err| {
+            FunctionCallError::RespondToModel(format!("cron_create rejected: {err}"))
+        })?;
 
         let now = Utc::now();
         let task_id = registry.insert(job, now);
@@ -63,6 +82,8 @@ impl ToolHandler for CronCreateHandler {
             task_id = %task_id,
             cron_expr = %cron_expr,
             background = background,
+            max_firings = ?max_firings,
+            until = ?until,
             "cron.created"
         );
         session.persist_scheduling_state();

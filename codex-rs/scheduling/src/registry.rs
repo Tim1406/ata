@@ -112,12 +112,18 @@ impl CronRegistry {
                 fired.push((id.clone(), job.prompt.clone(), job.background));
                 job.last_fired_at = Some(now);
                 job.fire_count = job.fire_count.saturating_add(1);
-                job.next_fire_at = next_fire_after(&job.cron_expr, now);
-                // Recurring jobs return to `Pending` so the panel reads as
-                // "waiting for next fire" between firings rather than being
-                // stuck on `Running` forever. One-shot jobs (no next fire)
-                // transition to `Completed`. The take_due loop still accepts
-                // both `Pending | Running` above for backward compatibility.
+                let candidate_next = next_fire_after(&job.cron_expr, now);
+                // Apply end conditions: max_firings caps total firings;
+                // `until` caps wall-clock duration. If either disqualifies
+                // the next candidate, drop it so the job transitions to
+                // Completed below.
+                let next = match candidate_next {
+                    None => None,
+                    Some(_) if job.max_firings.is_some_and(|cap| job.fire_count >= cap) => None,
+                    Some(t) if job.until.is_some_and(|deadline| t > deadline) => None,
+                    Some(t) => Some(t),
+                };
+                job.next_fire_at = next;
                 job.status = if job.next_fire_at.is_some() {
                     TaskStatus::Pending
                 } else {

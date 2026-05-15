@@ -26,6 +26,15 @@ struct CronCreateArgs {
     /// Set `false` for verbose diagnostic crons where you want every reply.
     #[serde(default = "default_background")]
     background: bool,
+    /// Optional. Stop after this many firings. `1` = one-shot reminder
+    /// ("at 3pm tomorrow, do X"). Omit = run forever (until deleted).
+    #[serde(default)]
+    max_firings: Option<u64>,
+    /// Optional. Stop firing after this RFC3339 timestamp. Omit = no end.
+    /// Useful for finite-duration schedules ("every weekday at 9am until
+    /// next Friday").
+    #[serde(default)]
+    until: Option<String>,
 }
 
 fn default_background() -> bool {

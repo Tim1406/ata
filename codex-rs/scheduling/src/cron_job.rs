@@ -37,6 +37,16 @@ pub struct CronJob {
     /// chat. Tool call cells still render. See `LoopTask::background`.
     #[serde(default = "default_background")]
     pub background: bool,
+    /// Optional. Stop firing after this many total firings. `Some(1)` makes
+    /// the job effectively one-shot ("at 3pm tomorrow, do X — then done").
+    /// `None` (default) means run forever (until deleted).
+    #[serde(default)]
+    pub max_firings: Option<u64>,
+    /// Optional. Stop firing after this wall-clock time. Use for
+    /// finite-duration schedules ("every weekday at 9am until next Friday").
+    /// `None` (default) means run forever.
+    #[serde(default)]
+    pub until: Option<DateTime<Utc>>,
 }
 
 fn default_background() -> bool {
@@ -56,6 +66,16 @@ impl CronJob {
         prompt: String,
         background: bool,
     ) -> Result<Self, CronError> {
+        Self::new_with_options(cron_expr, prompt, background, None, None)
+    }
+
+    pub fn new_with_options(
+        cron_expr: String,
+        prompt: String,
+        background: bool,
+        max_firings: Option<u64>,
+        until: Option<DateTime<Utc>>,
+    ) -> Result<Self, CronError> {
         cron::Schedule::from_str(&cron_expr)
             .map_err(|e| CronError::InvalidExpression(e.to_string()))?;
         Ok(Self {
@@ -68,6 +88,8 @@ impl CronJob {
             next_fire_at: None,
             fire_count: 0,
             background,
+            max_firings,
+            until,
         })
     }
 }

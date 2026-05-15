@@ -64,12 +64,14 @@ impl ToolHandler for CronCreateHandler {
                     .with_timezone(&Utc),
             ),
         };
-        let job = CronJob::new_with_options(
+        let timezone = args.timezone.clone();
+        let job = CronJob::new_with_full_options(
             args.cron_expr,
             args.prompt,
             args.background,
             max_firings,
             until,
+            timezone.clone(),
         )
         .map_err(|err| {
             FunctionCallError::RespondToModel(format!("cron_create rejected: {err}"))
@@ -84,6 +86,7 @@ impl ToolHandler for CronCreateHandler {
             background = background,
             max_firings = ?max_firings,
             until = ?until,
+            timezone = ?timezone,
             "cron.created"
         );
         session.persist_scheduling_state();

@@ -47,6 +47,37 @@ pub struct CronJob {
     /// `None` (default) means run forever.
     #[serde(default)]
     pub until: Option<DateTime<Utc>>,
+    /// Optional. Fixed UTC offset string (e.g. `"+07:00"`, `"-05:00"`,
+    /// `"Z"` / `"UTC"`). When set, the cron expression is interpreted as
+    /// wall-clock time at this offset. `None` (default) = UTC. Does NOT
+    /// auto-adjust for DST — callers in DST zones must update the offset
+    /// twice a year (or pass UTC and compute the offset themselves).
+    #[serde(default)]
+    pub timezone: Option<String>,
+}
+
+/// Parse a UTC-offset string into a `FixedOffset`. Accepts `+HH:MM`,
+/// `+HHMM`, `-HH:MM`, `-HHMM`, `Z`, and `UTC` (case-insensitive).
+pub fn parse_utc_offset(s: &str) -> Option<chrono::FixedOffset> {
+    if s == "Z" || s.eq_ignore_ascii_case("UTC") {
+        return chrono::FixedOffset::east_opt(0);
+    }
+    let mut chars = s.chars();
+    let sign = match chars.next()? {
+        '+' => 1,
+        '-' => -1,
+        _ => return None,
+    };
+    let rest: String = chars.filter(|c| *c != ':').collect();
+    if rest.len() != 4 || !rest.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let hours: i32 = rest[0..2].parse().ok()?;
+    let minutes: i32 = rest[2..4].parse().ok()?;
+    if hours > 14 || minutes > 59 {
+        return None;
+    }
+    chrono::FixedOffset::east_opt(sign * (hours * 3600 + minutes * 60))
 }
 
 fn default_background() -> bool {
@@ -76,8 +107,26 @@ impl CronJob {
         max_firings: Option<u64>,
         until: Option<DateTime<Utc>>,
     ) -> Result<Self, CronError> {
+        Self::new_with_full_options(cron_expr, prompt, background, max_firings, until, None)
+    }
+
+    pub fn new_with_full_options(
+        cron_expr: String,
+        prompt: String,
+        background: bool,
+        max_firings: Option<u64>,
+        until: Option<DateTime<Utc>>,
+        timezone: Option<String>,
+    ) -> Result<Self, CronError> {
         cron::Schedule::from_str(&cron_expr)
             .map_err(|e| CronError::InvalidExpression(e.to_string()))?;
+        if let Some(tz) = timezone.as_deref()
+            && parse_utc_offset(tz).is_none()
+        {
+            return Err(CronError::InvalidExpression(format!(
+                "invalid UTC offset `{tz}` (expected `+HH:MM`, `-HH:MM`, `Z`, or `UTC`)"
+            )));
+        }
         Ok(Self {
             id: TaskId::new(),
             cron_expr,
@@ -90,6 +139,7 @@ impl CronJob {
             background,
             max_firings,
             until,
+            timezone,
         })
     }
 }

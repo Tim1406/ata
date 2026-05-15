@@ -35,6 +35,11 @@ struct CronCreateArgs {
     /// next Friday").
     #[serde(default)]
     until: Option<String>,
+    /// Optional. IANA timezone name (e.g. `"Asia/Bangkok"`,
+    /// `"America/New_York"`) used to interpret the cron expression as
+    /// wall-clock time in that zone. Omit = expressions are UTC.
+    #[serde(default)]
+    timezone: Option<String>,
 }
 
 fn default_background() -> bool {

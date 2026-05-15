@@ -32,7 +32,8 @@ impl CronRegistry {
     /// using `now` as the anchor. Returns the assigned `TaskId`.
     pub fn insert(&self, mut job: CronJob, now: DateTime<Utc>) -> TaskId {
         if job.next_fire_at.is_none() {
-            job.next_fire_at = next_fire_after(&job.cron_expr, now);
+            job.next_fire_at =
+                next_fire_after_in_tz(&job.cron_expr, now, job.timezone.as_deref());
         }
         let id = job.id.clone();
         self.jobs
@@ -112,7 +113,8 @@ impl CronRegistry {
                 fired.push((id.clone(), job.prompt.clone(), job.background));
                 job.last_fired_at = Some(now);
                 job.fire_count = job.fire_count.saturating_add(1);
-                let candidate_next = next_fire_after(&job.cron_expr, now);
+                let candidate_next =
+                    next_fire_after_in_tz(&job.cron_expr, now, job.timezone.as_deref());
                 // Apply end conditions: max_firings caps total firings;
                 // `until` caps wall-clock duration. If either disqualifies
                 // the next candidate, drop it so the job transitions to
@@ -136,7 +138,31 @@ impl CronRegistry {
 }
 
 fn next_fire_after(cron_expr: &str, after: DateTime<Utc>) -> Option<DateTime<Utc>> {
-    cron::Schedule::from_str(cron_expr).ok()?.after(&after).next()
+    next_fire_after_in_tz(cron_expr, after, None)
+}
+
+/// Compute the next firing time, optionally interpreting the cron
+/// expression in a named IANA timezone. The returned `DateTime<Utc>` is
+/// always normalized to UTC for storage.
+fn next_fire_after_in_tz(
+    cron_expr: &str,
+    after: DateTime<Utc>,
+    timezone: Option<&str>,
+) -> Option<DateTime<Utc>> {
+    let schedule = cron::Schedule::from_str(cron_expr).ok()?;
+    match timezone {
+        None => schedule.after(&after).next(),
+        Some(offset_str) => {
+            let offset = crate::cron_job::parse_utc_offset(offset_str)?;
+            // Convert `after` to the target offset, get the next match in
+            // that offset, then convert back to UTC for storage.
+            let after_in_zone = after.with_timezone(&offset);
+            schedule
+                .after(&after_in_zone)
+                .next()
+                .map(|t| t.with_timezone(&Utc))
+        }
+    }
 }
 
 #[cfg(test)]

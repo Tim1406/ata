@@ -62,6 +62,19 @@ pub fn create_cron_create_tool() -> ToolSpec {
                     .to_string(),
             )),
         ),
+        (
+            "timezone".to_string(),
+            JsonSchema::string(Some(
+                "Optional. UTC offset string (e.g. `+07:00`, `-05:00`, `+0530`, `Z`, `UTC`) used to interpret the cron expression as wall-clock time at that offset. Omit = expressions are interpreted as UTC.\n\n\
+                IMPORTANT: when the user says local times like \"9am\" or \"every weekday at noon\", you should ALMOST ALWAYS pass `timezone`. Run `date +%z` to get the user's current offset if you don't know it; otherwise ask. Without `timezone`, a 9am request becomes 9am UTC (which is 4pm in Bangkok, 4am in New York), which is rarely what the user wants.\n\n\
+                NOTE: this is a FIXED offset — it does not auto-adjust for daylight saving time. For zones with DST (e.g. US East Coast), the user must update the offset when DST starts/ends, or pass the appropriate offset for the current date.\n\n\
+                Examples:\n\
+                - \"every weekday at 9am\" (user in Bangkok, UTC+7) → cron_expr=\"0 0 9 * * 1-5\", timezone=\"+07:00\"\n\
+                - \"daily at 6pm New York time\" (currently EST, UTC-5) → cron_expr=\"0 0 18 * * *\", timezone=\"-05:00\"\n\
+                - \"every hour\" → no timezone needed; UTC and local both yield the same firings"
+                    .to_string(),
+            )),
+        ),
     ]);
 
     ToolSpec::Function(ResponsesApiTool {

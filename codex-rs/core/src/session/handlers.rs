@@ -111,13 +111,14 @@ pub async fn list_scheduling_tasks(sess: &Session, sub_id: String) {
                     &e.cron_expr_five_field,
                 )
                 .map(|t| t.to_rfc3339());
+                let stats = codex_scheduling::os_cron::fire_stats(&e.task_id);
                 SchedulingCronRow {
                     task_id: e.task_id.as_str().to_string(),
                     cron_expr: e.cron_expr_five_field,
                     prompt: e.prompt,
                     status: "Scheduled".to_string(),
-                    fire_count: 0,
-                    last_fired_at: None,
+                    fire_count: stats.fire_count,
+                    last_fired_at: stats.last_fired_at.map(|t| t.to_rfc3339()),
                     next_fire_at,
                 }
             })

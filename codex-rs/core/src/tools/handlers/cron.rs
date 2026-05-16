@@ -46,6 +46,8 @@ struct CronJobSummary {
     next_fire_at: Option<String>,
     log_path: String,
     created_at: Option<String>,
+    fire_count: u64,
+    last_fired_at: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

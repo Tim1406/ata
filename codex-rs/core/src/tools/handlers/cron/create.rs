@@ -51,12 +51,20 @@ impl ToolHandler for CronCreateHandler {
             ));
         }
 
+        // The tool spec documents 5-field POSIX cron (no seconds column) but
+        // the underlying `cron` crate validates 6-field expressions. Normalize
+        // by prepending `0 ` so seconds=0 when the caller sent 5 fields.
+        let normalized_expr = match args.cron_expr.split_whitespace().count() {
+            5 => format!("0 {}", args.cron_expr),
+            _ => args.cron_expr.clone(),
+        };
+
         // Validate the cron expression and confirm OS cron can express it.
-        let _five_field = os_cron::six_field_to_five(&args.cron_expr).map_err(|err| {
+        let _five_field = os_cron::six_field_to_five(&normalized_expr).map_err(|err| {
             FunctionCallError::RespondToModel(format!("cron_create rejected: {err}"))
         })?;
 
-        let job = CronJob::new(args.cron_expr.clone(), args.prompt).map_err(|err| {
+        let job = CronJob::new(normalized_expr.clone(), args.prompt).map_err(|err| {
             FunctionCallError::RespondToModel(format!("cron_create rejected: {err}"))
         })?;
 
@@ -65,7 +73,7 @@ impl ToolHandler for CronCreateHandler {
         })?;
 
         let next_fire_at =
-            os_cron::next_fire_after_now(&args.cron_expr).map(|t| t.to_rfc3339());
+            os_cron::next_fire_after_now(&normalized_expr).map(|t| t.to_rfc3339());
 
         let log_path = os_cron::data_dir()
             .map(|d| d.join(format!("{}.log", job.id)).display().to_string())

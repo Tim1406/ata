@@ -220,6 +220,39 @@ fn shell_quote_path(p: &Path) -> String {
     }
 }
 
+/// Best-effort runtime stats for a single OS-cron entry, derived from its
+/// captured log file. OS cron itself doesn't track per-job firing history, so
+/// we infer it from the log: every `ata exec` invocation prints a session
+/// header line (`session id: <uuid>`), so counting those gives `fire_count`.
+/// `last_fired_at` is the log file's modification time.
+#[derive(Debug, Clone, Default)]
+pub struct FireStats {
+    pub fire_count: u64,
+    pub last_fired_at: Option<DateTime<Utc>>,
+}
+
+/// Read firing statistics for `task_id` by inspecting its log file. Returns
+/// `FireStats::default()` (zero fires, no last-fired) when the log doesn't
+/// exist or can't be read — i.e. the job has been scheduled but not fired yet.
+pub fn fire_stats(task_id: &TaskId) -> FireStats {
+    let Ok(log) = log_path(task_id) else {
+        return FireStats::default();
+    };
+    let last_fired_at = std::fs::metadata(&log)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .map(DateTime::<Utc>::from);
+    let content = std::fs::read_to_string(&log).unwrap_or_default();
+    let fire_count = content
+        .lines()
+        .filter(|l| l.trim_start().starts_with("session id:"))
+        .count() as u64;
+    FireStats {
+        fire_count,
+        last_fired_at,
+    }
+}
+
 /// Insert a job into the user's crontab. Writes the prompt to its sidecar
 /// file, then appends the two crontab lines.
 pub fn insert(job: &CronJob) -> Result<(), OsCronError> {

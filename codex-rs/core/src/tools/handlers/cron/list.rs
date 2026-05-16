@@ -54,6 +54,7 @@ impl ToolHandler for CronListHandler {
             .map(|e| {
                 let next_fire_at = os_cron::next_fire_after_now_five_field(&e.cron_expr_five_field)
                     .map(|t| t.to_rfc3339());
+                let stats = os_cron::fire_stats(&e.task_id);
                 CronJobSummary {
                     task_id: e.task_id.to_string(),
                     cron_expr: e.cron_expr_five_field,
@@ -61,6 +62,8 @@ impl ToolHandler for CronListHandler {
                     next_fire_at,
                     log_path: e.log_path.display().to_string(),
                     created_at: e.created_at.map(|t| t.to_rfc3339()),
+                    fire_count: stats.fire_count,
+                    last_fired_at: stats.last_fired_at.map(|t| t.to_rfc3339()),
                 }
             })
             .collect();

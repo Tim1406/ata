@@ -68,7 +68,20 @@ Don't use when:
 - The user wants something to happen on a fixed schedule (every minute, daily at 9am) — use cron_create.
 - The user wants model-paced retries until a condition is met — use the loop tool.
 
-The command runs until it exits naturally or you call `monitor_stop`."#
+The command runs until it exits naturally or you call `monitor_stop`.
+
+USEFUL PATTERNS (compose monitor_start with the right command for the trigger you want):
+
+**File-watch** — fire when a file or directory changes (works while ata is open):
+- macOS: `monitor_start command="fswatch /path/to/file"` then `monitor_watch_for pattern=".*"`. Needs `brew install fswatch`.
+- Linux: `monitor_start command="inotifywait -m -e modify /path/to/file"` then `monitor_watch_for pattern="MODIFY"`. Needs `apt install inotify-tools`.
+Each file change emits one line; `monitor_watch_for` wakes the agent on the match.
+
+**Receive a webhook / one-way HTTP signal** — listen on a localhost port (works while ata is open):
+- `monitor_start command="ncat -l 8765 --keep-open"` then `monitor_watch_for pattern="^POST"`. Needs `ncat` (from nmap).
+- Caveats: no HTTP response is sent back to the caller (connection just closes); no path routing; no header parsing. Fine for simple "ping me when X happens" hooks, not for production integrations.
+
+NOTE on persistence: monitor (and these patterns) only fire while ata is open. For schedules that must survive ata closing, the only available tool is `cron_create` (OS cron). There is no persistent file-watch or webhook tool today."#
             .to_string(),
         strict: false,
         defer_loading: None,

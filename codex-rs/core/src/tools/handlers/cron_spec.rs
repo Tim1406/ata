@@ -1,9 +1,12 @@
-//! Responses API tool definitions for in-session Cron scheduling.
+//! Responses API tool definitions for OS-level Cron scheduling.
 //!
 //! These specs are registered only when [`Feature::Scheduling`] is enabled.
 //! Each description includes "use when…" / "don't use when…" guidance so
-//! the model picks the right tool from this family (vs. Monitor or Loop,
-//! which arrive in later phases).
+//! the model picks the right tool from this family (vs. Monitor or Loop).
+//!
+//! Persistence: schedules created here are written to the user's system
+//! crontab. They survive ata exit and reboot. Each firing launches a
+//! short-lived `ata exec` subprocess; output is captured to a log file.
 
 use codex_tools::JsonSchema;
 use codex_tools::ResponsesApiTool;
@@ -20,58 +23,14 @@ pub fn create_cron_create_tool() -> ToolSpec {
         (
             "cron_expr".to_string(),
             JsonSchema::string(Some(
-                "Required. A 6-field cron expression `sec min hour day-of-month month day-of-week`. Examples: `0 0 * * * *` (every hour on the hour), `0 0 9 * * 1-5` (weekdays at 09:00:00), `0 */5 * * * *` (every 5 minutes)."
+                "Required. 5-field cron expression in the OS-cron format: `min hour day-of-month month day-of-week`. Examples: `*/2 * * * *` (every 2 minutes), `0 9 * * 1-5` (weekdays at 09:00), `0 */6 * * *` (every 6 hours), `30 14 1 * *` (14:30 on the 1st of every month). The minimum granularity is 1 minute — sub-minute schedules are NOT supported."
                     .to_string(),
             )),
         ),
         (
             "prompt".to_string(),
             JsonSchema::string(Some(
-                "Required. The user-message text to inject into this session each time the schedule fires."
-                    .to_string(),
-            )),
-        ),
-        (
-            "background".to_string(),
-            JsonSchema::boolean(Some(
-                "Optional. Default `true`. Controls whether each firing is visible in chat.\n\n\
-                Pass `false` when the user clearly wants to SEE the result of every firing — phrases like \"say X every minute\", \"tell me X each hour\", \"print Y\", \"show me Z periodically\", \"report back every N minutes\". With `background=false`, the agent's reply is rendered as a normal chat turn.\n\n\
-                Pass `true` (or omit) when the user wants the firing to run quietly and only alert on a condition — phrases like \"alert me if\", \"only tell me when\", \"check X and notify me if Y\", \"watch for changes\". With `background=true`, the agent's reply text is hidden; only tool-call output (e.g. shell `echo`) renders in chat.\n\n\
-                Rule of thumb: if the user's request has no conditional (\"only if…\", \"when X happens…\"), prefer `false` so they actually see output. Default to `true` only when the prompt is clearly an alert-style poll."
-                    .to_string(),
-            )),
-        ),
-        (
-            "max_firings".to_string(),
-            JsonSchema::integer(Some(
-                "Optional. Stop after this many total firings, then mark the cron Completed. Use `1` for one-shot reminders (\"at 3pm tomorrow, do X\" → cron_expr matching 3pm + max_firings=1; the cron stops itself after that single fire, no need to delete). Omit (default) = run forever until manually deleted.\n\n\
-                Examples:\n\
-                - \"remind me at 4pm today to check X\" → cron_expr=\"0 0 16 * * *\", max_firings=1\n\
-                - \"every 5 min for the next hour\" → cron_expr=\"0 */5 * * * *\", max_firings=12"
-                    .to_string(),
-            )),
-        ),
-        (
-            "until".to_string(),
-            JsonSchema::string(Some(
-                "Optional. Stop firing after this RFC3339 timestamp, then mark the cron Completed. Use for finite-duration schedules.\n\n\
-                Examples:\n\
-                - \"every weekday at 9am until next Friday\" → cron_expr=\"0 0 9 * * 1-5\", until=\"2026-05-22T23:59:59Z\"\n\
-                - \"hourly for the next 8 hours\" → cron_expr=\"0 0 * * * *\", until set to 8h from now\n\n\
-                If both `max_firings` and `until` are set, whichever triggers first ends the job."
-                    .to_string(),
-            )),
-        ),
-        (
-            "timezone".to_string(),
-            JsonSchema::string(Some(
-                "Optional. UTC offset string (e.g. `+07:00`, `-05:00`, `+0530`, `Z`, `UTC`) used to interpret the cron expression as wall-clock time at that offset. Omit = expressions are interpreted as UTC.\n\n\
-                IMPORTANT: when the user says local times like \"9am\" or \"every weekday at noon\", you should ALMOST ALWAYS pass `timezone`. Run `date +%z` to get the user's current offset if you don't know it; otherwise ask. Without `timezone`, a 9am request becomes 9am UTC (which is 4pm in Bangkok, 4am in New York), which is rarely what the user wants.\n\n\
-                NOTE: this is a FIXED offset — it does not auto-adjust for daylight saving time. For zones with DST (e.g. US East Coast), the user must update the offset when DST starts/ends, or pass the appropriate offset for the current date.\n\n\
-                Examples:\n\
-                - \"every weekday at 9am\" (user in Bangkok, UTC+7) → cron_expr=\"0 0 9 * * 1-5\", timezone=\"+07:00\"\n\
-                - \"daily at 6pm New York time\" (currently EST, UTC-5) → cron_expr=\"0 0 18 * * *\", timezone=\"-05:00\"\n\
-                - \"every hour\" → no timezone needed; UTC and local both yield the same firings"
+                "Required. The prompt to send to a fresh `ata exec` subprocess each time the schedule fires. Each firing is a brand-new ata process with NO memory of the current chat session — write the prompt as a self-contained instruction. Output (the agent's reply + any tool output) is captured to a log file; nothing appears in chat."
                     .to_string(),
             )),
         ),
@@ -79,38 +38,43 @@ pub fn create_cron_create_tool() -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: CRON_CREATE_TOOL_NAME.to_string(),
-        description: r#"Schedule a prompt to be injected as a new user message on a recurring **clock-aligned** schedule, in the current session.
+        description: r#"Schedule a prompt to run on a recurring **clock-aligned** schedule, persisted at the OS level via the user's system crontab.
 
-USE THIS TOOL ONLY when the user wants firings tied to wall-clock times:
-- "every Monday at 9am"
-- "at the top of every hour"
-- "daily at 09:00"
-- "on the 1st of every month"
-- "at 3pm tomorrow, remind me to X" — set `max_firings: 1` so the cron stops itself after one fire
-- "every weekday at 9am until next Friday" — set `until: "2026-05-22T23:59:59Z"`
+KEY FACTS the model must understand before calling this:
 
-Research-workflow examples that fit naturally here (compose with the research skills like `$paper-discovery`, `$hn-synthesis`, `$kb`):
-- "every weekday at 9am, run $paper-discovery on new transformer-architecture papers" — daily literature review
-- "every Sunday at 8pm, run $hn-synthesis on 'AI safety' for the past week" — weekly digest
-- "daily at 6am, sync new Zotero items into the KB" — overnight library sync
-- "every Tuesday at 10am, run citation tracking on the papers in my KB" — weekly citation refresh
+1. **Persistence**: schedules survive ata closing, reboot, and re-login. They live in the user's crontab (`crontab -l`), not in any ata session. Closing ata does NOT stop the schedule.
 
-DO NOT USE THIS TOOL for interval-based requests like:
-- "every 5 minutes" — use `loop_start` with interval_seconds=300. The user almost always means "5 minutes from now, then every 5 minutes", NOT "at :00 :05 :10 of every hour".
-- "every 30 seconds" — use `loop_start`.
-- "every hour starting now" — use `loop_start` with interval_seconds=3600.
+2. **Fresh process per firing**: each firing launches `ata exec "<prompt>"` as a brand-new ata process. The new process has NO memory of the current chat session, no conversation history, no local variables. Write the prompt as fully self-contained.
 
-Rule of thumb: if the user picks an explicit wall-clock time ("at 9am", "at midnight", "on Sunday"), use cron. If they just give a duration ("every N minutes"), use `loop_start` so the schedule starts from now, not the next clock boundary.
+3. **Output goes to a log file**, not chat. Each job logs to `~/.ata/cron/<task_id>.log`. The user must `tail -f` the file (or ask you to read it) to see firings.
 
-Don't use when:
+4. **1-minute minimum**: OS cron's smallest interval is 1 minute. `*/30 * * * * *` (every 30 seconds) is impossible.
+
+5. **5-field, not 6-field**: standard POSIX cron has NO seconds column. Format is `min hour day-of-month month day-of-week`.
+
+USE THIS TOOL when the user wants:
+- "every Monday at 9am, do X"
+- "at the top of every hour, do X"
+- "daily at 09:00, do X"
+- "every 2 minutes, do X" (2-min is fine; sub-minute is not)
+- Any persistent recurring task that should outlive a single ata session
+
+DO NOT USE THIS TOOL when:
+- The user wants something to happen only while ata is open and they're watching — use `loop_start` (session-scoped, visible in chat).
+- The user wants sub-minute granularity — OS cron can't do it. Use `loop_start` with a small interval.
 - The user wants to react to streaming output (logs, build progress) — that's the Monitor tool.
 - The user wants the agent to keep checking until a condition is met, then stop — that's the Loop tool.
+- The firing needs the current chat's context ("continue what we just discussed every hour") — the cron'd process has no conversation memory. Use `loop_start` instead.
 
-Visibility (background flag):
-- If the user says "say X every hour" / "tell me X each morning" / "report back" — pass `background: false` so they see the agent's reply each time.
-- If the user says "alert me if" / "only when" / "check for X and notify me if Y" — pass `background: true` (or omit) so quiet runs don't flood chat.
+Rule of thumb: clock-aligned + persistent + can-be-self-contained → cron. Anything else → loop or monitor.
 
-The job fires inside the current session; closing the session stops it. Returns a task_id that can be used with cron_delete."#
+The tool returns `task_id`, `next_fire_at` (UTC RFC3339), and `log_path`. Surface `log_path` to the user so they know where to look.
+
+Examples:
+- "Every 2 minutes, create a new file in /tmp" → cron_expr="*/2 * * * *", prompt="run `touch /tmp/scheduled-$(date +%s).file` and exit."
+- "Every weekday at 9am, summarize my GitHub notifications" → cron_expr="0 9 * * 1-5", prompt="fetch my GitHub notifications via gh, write a 3-bullet summary to ~/notes/gh-digest-$(date +%F).md, and exit."
+- "Daily at 6am, sync new Zotero items" → cron_expr="0 6 * * *", prompt="run the zotero-sync skill to pull new items into my knowledge base, then exit."
+"#
             .to_string(),
         strict: false,
         defer_loading: None,
@@ -127,13 +91,15 @@ The job fires inside the current session; closing the session stops it. Returns 
 pub fn create_cron_list_tool() -> ToolSpec {
     ToolSpec::Function(ResponsesApiTool {
         name: CRON_LIST_TOOL_NAME.to_string(),
-        description: r#"List all cron jobs currently scheduled in this session.
+        description: r#"List all ata-managed cron jobs currently scheduled in the user's system crontab.
 
 Use when:
 - The user asks "what's scheduled?", "what cron jobs are running?", or similar.
 - You need to look up a task_id before calling cron_delete.
 
-Returns each job's task_id, cron expression, prompt, status, next_fire_at, and fire_count."#
+Returns the task_id, 5-field cron expression, the prompt, next_fire_at (UTC), log_path, and created_at for each ata-tagged entry. Entries from other tools or the user's manually-written crontab lines are ignored — only ata's own jobs are returned.
+
+Note: cron jobs are NOT session-scoped. This list reflects all jobs across all ata sessions for the current user. Created in one session, visible from any."#
             .to_string(),
         strict: false,
         defer_loading: None,
@@ -154,13 +120,13 @@ pub fn create_cron_delete_tool() -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: CRON_DELETE_TOOL_NAME.to_string(),
-        description: r#"Cancel a scheduled cron job by its task_id. After deletion, the job will not fire again.
+        description: r#"Cancel a scheduled cron job by its task_id. Removes the entry from the user's system crontab. After deletion, the job will not fire again.
 
 Use when:
 - The user asks to "cancel", "stop", or "remove" a scheduled task.
 - The user no longer needs a recurring schedule.
 
-If the task_id is not found, returns a not-found result rather than an error.
+If the task_id is not found, returns `deleted: false` rather than an error.
 
 Use cron_list first if you don't already have the task_id."#
             .to_string(),

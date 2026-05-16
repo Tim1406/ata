@@ -9,6 +9,7 @@ pub mod loop_registry;
 pub mod loop_task;
 pub mod monitor;
 pub mod monitor_registry;
+pub mod os_cron;
 pub mod persist;
 pub mod registry;
 pub mod task;

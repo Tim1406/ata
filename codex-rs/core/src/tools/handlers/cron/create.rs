@@ -1,5 +1,5 @@
-use chrono::Utc;
 use codex_scheduling::CronJob;
+use codex_scheduling::os_cron;
 use codex_tools::ToolName;
 
 use crate::function_tool::FunctionCallError;
@@ -43,68 +43,51 @@ impl ToolHandler for CronCreateHandler {
 
         let args: CronCreateArgs = parse_arguments(&arguments)?;
 
-        let registry = session.cron_registry().ok_or_else(|| {
-            FunctionCallError::RespondToModel(
+        // The CronRegistry handle is now used purely as a feature-flag check.
+        // OS cron has no in-memory state; persistence is the user's crontab.
+        if session.cron_registry().is_none() {
+            return Err(FunctionCallError::RespondToModel(
                 "scheduling feature is not enabled in this session".to_string(),
-            )
-        })?;
+            ));
+        }
 
-        let cron_expr = args.cron_expr.clone();
-        let background = args.background;
-        let max_firings = args.max_firings;
-        let until = match args.until.as_deref() {
-            None => None,
-            Some(s) => Some(
-                chrono::DateTime::parse_from_rfc3339(s)
-                    .map_err(|err| {
-                        FunctionCallError::RespondToModel(format!(
-                            "cron_create: `until` must be a valid RFC3339 timestamp (e.g. \"2026-05-16T17:00:00Z\"): {err}"
-                        ))
-                    })?
-                    .with_timezone(&Utc),
-            ),
-        };
-        let timezone = args.timezone.clone();
-        let job = CronJob::new_with_full_options(
-            args.cron_expr,
-            args.prompt,
-            args.background,
-            max_firings,
-            until,
-            timezone.clone(),
-        )
-        .map_err(|err| {
+        // Validate the cron expression and confirm OS cron can express it.
+        let _five_field = os_cron::six_field_to_five(&args.cron_expr).map_err(|err| {
             FunctionCallError::RespondToModel(format!("cron_create rejected: {err}"))
         })?;
 
-        let now = Utc::now();
-        let task_id = registry.insert(job, now);
+        let job = CronJob::new(args.cron_expr.clone(), args.prompt).map_err(|err| {
+            FunctionCallError::RespondToModel(format!("cron_create rejected: {err}"))
+        })?;
+
+        os_cron::insert(&job).map_err(|err| {
+            FunctionCallError::RespondToModel(format!("cron_create failed to write crontab: {err}"))
+        })?;
+
+        let next_fire_at =
+            os_cron::next_fire_after_now(&args.cron_expr).map(|t| t.to_rfc3339());
+
+        let log_path = os_cron::data_dir()
+            .map(|d| d.join(format!("{}.log", job.id)).display().to_string())
+            .unwrap_or_default();
+
         tracing::info!(
             target: "codex_scheduling::cron",
-            task_id = %task_id,
-            cron_expr = %cron_expr,
-            background = background,
-            max_firings = ?max_firings,
-            until = ?until,
-            timezone = ?timezone,
-            "cron.created"
+            task_id = %job.id,
+            cron_expr = %args.cron_expr,
+            "cron.created (os-cron)"
         );
-        session.persist_scheduling_state();
-
-        let next_fire_at = registry
-            .list()
-            .into_iter()
-            .find(|j| j.id == task_id)
-            .and_then(|j| j.next_fire_at)
-            .map(|t| t.to_rfc3339());
 
         let response = CronCreateResponse {
-            task_id: task_id.to_string(),
+            task_id: job.id.to_string(),
             next_fire_at,
+            log_path,
         };
 
         let body = serde_json::to_string(&response).map_err(|err| {
-            FunctionCallError::RespondToModel(format!("cron_create response serialization failed: {err}"))
+            FunctionCallError::RespondToModel(format!(
+                "cron_create response serialization failed: {err}"
+            ))
         })?;
 
         Ok(FunctionToolOutput::from_text(body, Some(true)))

@@ -1,3 +1,4 @@
+use codex_scheduling::os_cron;
 use codex_tools::ToolName;
 
 use crate::function_tool::FunctionCallError;
@@ -29,8 +30,6 @@ impl ToolHandler for CronListHandler {
             session, payload, ..
         } = invocation;
 
-        // cron_list takes no arguments; we still verify the payload shape so
-        // unexpected envelopes surface clearly.
         match payload {
             ToolPayload::Function { .. } => {}
             _ => {
@@ -40,29 +39,37 @@ impl ToolHandler for CronListHandler {
             }
         }
 
-        let registry = session.cron_registry().ok_or_else(|| {
-            FunctionCallError::RespondToModel(
+        if session.cron_registry().is_none() {
+            return Err(FunctionCallError::RespondToModel(
                 "scheduling feature is not enabled in this session".to_string(),
-            )
+            ));
+        }
+
+        let entries = os_cron::list().map_err(|err| {
+            FunctionCallError::RespondToModel(format!("cron_list failed to read crontab: {err}"))
         })?;
 
-        let jobs = registry
-            .list()
+        let jobs = entries
             .into_iter()
-            .map(|j| CronJobSummary {
-                task_id: j.id.to_string(),
-                cron_expr: j.cron_expr,
-                prompt: j.prompt,
-                status: format!("{:?}", j.status),
-                next_fire_at: j.next_fire_at.map(|t| t.to_rfc3339()),
-                last_fired_at: j.last_fired_at.map(|t| t.to_rfc3339()),
-                fire_count: j.fire_count,
+            .map(|e| {
+                let next_fire_at = os_cron::next_fire_after_now_five_field(&e.cron_expr_five_field)
+                    .map(|t| t.to_rfc3339());
+                CronJobSummary {
+                    task_id: e.task_id.to_string(),
+                    cron_expr: e.cron_expr_five_field,
+                    prompt: e.prompt,
+                    next_fire_at,
+                    log_path: e.log_path.display().to_string(),
+                    created_at: e.created_at.map(|t| t.to_rfc3339()),
+                }
             })
             .collect();
 
         let response = CronListResponse { jobs };
         let body = serde_json::to_string(&response).map_err(|err| {
-            FunctionCallError::RespondToModel(format!("cron_list response serialization failed: {err}"))
+            FunctionCallError::RespondToModel(format!(
+                "cron_list response serialization failed: {err}"
+            ))
         })?;
 
         Ok(FunctionToolOutput::from_text(body, Some(true)))

@@ -1,4 +1,5 @@
 use codex_scheduling::TaskId;
+use codex_scheduling::os_cron;
 use codex_tools::ToolName;
 
 use crate::function_tool::FunctionCallError;
@@ -42,26 +43,30 @@ impl ToolHandler for CronDeleteHandler {
 
         let args: CronDeleteArgs = parse_arguments(&arguments)?;
 
-        let registry = session.cron_registry().ok_or_else(|| {
-            FunctionCallError::RespondToModel(
+        if session.cron_registry().is_none() {
+            return Err(FunctionCallError::RespondToModel(
                 "scheduling feature is not enabled in this session".to_string(),
-            )
-        })?;
+            ));
+        }
 
         let task_id = TaskId::from(args.task_id);
-        let deleted = registry.remove(&task_id).is_some();
+        let deleted = os_cron::delete(&task_id).map_err(|err| {
+            FunctionCallError::RespondToModel(format!("cron_delete failed: {err}"))
+        })?;
+
         if deleted {
             tracing::info!(
                 target: "codex_scheduling::cron",
                 task_id = %task_id,
-                "cron.deleted"
+                "cron.deleted (os-cron)"
             );
-            session.persist_scheduling_state();
         }
-        let response = CronDeleteResponse { deleted };
 
+        let response = CronDeleteResponse { deleted };
         let body = serde_json::to_string(&response).map_err(|err| {
-            FunctionCallError::RespondToModel(format!("cron_delete response serialization failed: {err}"))
+            FunctionCallError::RespondToModel(format!(
+                "cron_delete response serialization failed: {err}"
+            ))
         })?;
 
         Ok(FunctionToolOutput::from_text(body, Some(true)))

@@ -426,11 +426,9 @@ impl Session {
         let Some(path) = self.scheduling_state_path.as_ref() else {
             return;
         };
-        let cron_jobs = self
-            .cron_registry
-            .as_ref()
-            .map(|r| r.list())
-            .unwrap_or_default();
+        // Cron is persisted by the OS (system crontab), not by this sidecar.
+        // Keep the field empty so legacy readers stay tolerant.
+        let cron_jobs = Vec::new();
         let monitors = self
             .monitor_runtime
             .as_ref()
@@ -1081,8 +1079,13 @@ impl Session {
                         {
                             match codex_scheduling::load_scheduling_state(path) {
                                 Ok(Some(snap)) => {
-                                    let cron_n = snap.cron_jobs.len();
-                                    cron_reg.hydrate(snap.cron_jobs);
+                                    // Cron is owned by the OS now (system
+                                    // crontab). Any cron jobs in the legacy
+                                    // sidecar are ignored — they no longer
+                                    // fire from in-process state.
+                                    let cron_n = 0usize;
+                                    let _ = cron_reg;
+                                    let _ = snap.cron_jobs;
                                     // Subprocesses are dead — surface
                                     // non-terminal monitors as `Interrupted`
                                     // rather than misleadingly showing

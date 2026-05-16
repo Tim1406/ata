@@ -695,86 +695,15 @@ impl Codex {
                 .instrument(info_span!("session_loop", thread_id = %thread_id))
                 .await;
         });
-        // Spawn the cron firing engine ONLY for sessions that own their
-        // scheduling registries (i.e., root sessions). Sub-agents inherit the
-        // root's registry and submission tx (Option A), so starting a second
-        // engine on a sub-agent session would double-fire every job — and the
-        // sub-agent's engine would die with the sub-agent anyway, taking the
-        // jobs with it. Root-only firing keeps cron durable across the spawn
-        // tree.
-        if session.scheduling_is_root
-            && let Some(cron_registry) = session.cron_registry.clone()
-        {
-            // Use the session's own submission tx here (which equals tx_sub for
-            // root); ensures the cron tick goes into the root session's queue.
-            let tx_sub_for_cron = session.submission_tx.clone();
-            let session_weak = Arc::downgrade(&session);
-            tokio::spawn(async move {
-                // 1-second tick so sub-minute cron expressions (e.g. "*/10")
-                // fire on time. The registry scan inside `take_due` is a
-                // cheap hashmap pass — running it 60x more often than a
-                // minute-grain engine adds negligible load.
-                let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
-                // First tick fires immediately; skip it so we don't fire at
-                // session start before any job has been created.
-                tick.tick().await;
-                loop {
-                    tick.tick().await;
-                    let Some(session_alive) = session_weak.upgrade() else {
-                        break;
-                    };
-                    let due = cron_registry.take_due(chrono::Utc::now());
-                    let any_fired = !due.is_empty();
-                    for (id, prompt, background) in due {
-                        tracing::info!(
-                            target: "codex_scheduling::cron",
-                            task_id = %id,
-                            background = background,
-                            "cron.fired"
-                        );
-                        let op = Op::UserInput {
-                            items: vec![UserInput::Text {
-                                text: prompt,
-                                text_elements: Vec::new(),
-                            }],
-                            environments: None,
-                            final_output_json_schema: None,
-                            responsesapi_client_metadata: None,
-                        };
-                        // Submission id encodes the task id and background
-                        // flag (Slice 5). The TUI hides the agent's natural-
-                        // language reply for `cronbg__` firings so periodic
-                        // crons don't flood the chat. `cron__` keeps the
-                        // visible-turn behavior for users who explicitly
-                        // opt out of background mode.
-                        let prefix = if background { "cronbg" } else { "cron" };
-                        let sub = Submission {
-                            id: format!("{prefix}__{id}__{}", Uuid::now_v7()),
-                            op,
-                            trace: None,
-                        };
-                        if tx_sub_for_cron.send(sub).await.is_err() {
-                            // Submission channel closed — session is shutting down.
-                            return;
-                        }
-                    }
-                    // Persist after a tick fired so the bumped fire_count
-                    // and last_fired_at survive a crash before the next
-                    // tool-driven save. Skipped on quiet ticks for sanity.
-                    if any_fired {
-                        session_alive.persist_scheduling_state();
-                    }
-                }
-            });
-        }
+        // Cron firing is owned by the OS (the user's system crontab) — no
+        // in-process tick loop. See `codex_scheduling::os_cron`. Loops and
+        // monitors are still in-process and resumed below.
 
         // Phase 4: re-spawn per-loop tokio tasks for any loops that came
-        // back from the persisted snapshot. Cron is engine-driven (single
-        // tokio task above polls the registry every second, so resumed
-        // cron jobs are already covered). Loops are different — each loop
-        // is its own tokio task that died when the prior session quit, so
-        // we need to bring them back one-by-one. Monitors stay dead with
-        // status `Interrupted`; we don't auto-restart subprocesses.
+        // back from the persisted snapshot. Loops are in-process — each
+        // loop is its own tokio task that died when the prior session
+        // quit, so we need to bring them back one-by-one. Monitors stay
+        // dead with status `Interrupted`; we don't auto-restart subprocesses.
         if session.scheduling_is_root
             && let Some(loop_runtime) = session.loop_runtime.clone()
         {

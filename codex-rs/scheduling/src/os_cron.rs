@@ -180,9 +180,27 @@ pub fn format_entry(
         id = job.id,
         created = job.created_at.to_rfc3339(),
     );
+    // Cron runs with a minimal PATH (typically `/usr/bin:/bin`). If `ata`
+    // is a wrapper script (the npm distribution is a node shebang), the
+    // interpreter it shells out to (e.g. `node`) must be discoverable.
+    // Prepend the binary's parent dir to PATH so wrapper scripts find their
+    // interpreter without the user having to edit their crontab manually.
+    let bin_dir = ata_binary
+        .parent()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let path_prefix = if bin_dir.is_empty() {
+        String::new()
+    } else {
+        format!("PATH={}:/usr/bin:/bin ", shell_quote_path(Path::new(&bin_dir)))
+    };
+    // `--skip-git-repo-check` is required because cron starts in `$HOME`,
+    // which isn't a trusted git repo. The scheduled prompt is the user's
+    // own intent so the git-trust gate isn't useful here anyway.
     let command = format!(
-        "{schedule} {bin} exec - < {prompt} >> {log} 2>&1",
+        "{schedule} {path}{bin} exec --skip-git-repo-check - < {prompt} >> {log} 2>&1",
         schedule = five_field,
+        path = path_prefix,
         bin = shell_quote_path(ata_binary),
         prompt = shell_quote_path(prompt_file),
         log = shell_quote_path(log_file),

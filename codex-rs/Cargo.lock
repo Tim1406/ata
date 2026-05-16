@@ -2275,7 +2275,6 @@ dependencies = [
  "codex-rmcp-client",
  "codex-rollout-trace",
  "codex-sandboxing",
- "codex-scheduler",
  "codex-state",
  "codex-stdio-to-uds",
  "codex-terminal-detection",
@@ -3677,29 +3676,6 @@ dependencies = [
  "tracing",
  "url",
  "which 8.0.2",
-]
-
-[[package]]
-name = "codex-scheduler"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "codex-utils-home-dir",
- "cron",
- "libc",
- "notify",
- "pretty_assertions",
- "reqwest",
- "serde",
- "serde_json",
- "sqlx",
- "tiny_http",
- "tokio",
- "toml 0.9.12+spec-1.1.0",
- "tracing",
- "uuid",
 ]
 
 [[package]]

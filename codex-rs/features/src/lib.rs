@@ -1267,7 +1267,7 @@ pub const FEATURES: &[FeatureSpec] = &[
         key: "scheduling",
         stage: Stage::Experimental {
             name: "Scheduling",
-            menu_description: "In-session cron/loop/monitor tools. Tasks live with the chat session. Turn OFF to use the legacy job-manager skill instead (daemon-based, survives quit). Can't use both at once.",
+            menu_description: "OS-cron / in-session loop / in-session monitor tools. Cron entries live in the system crontab and survive ata exit; loops and monitors are scoped to the chat session.",
             announcement: "",
         },
         default_enabled: false,

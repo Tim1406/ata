@@ -137,13 +137,9 @@ impl CronRegistry {
     }
 }
 
-fn next_fire_after(cron_expr: &str, after: DateTime<Utc>) -> Option<DateTime<Utc>> {
-    next_fire_after_in_tz(cron_expr, after, None)
-}
-
 /// Compute the next firing time, optionally interpreting the cron
-/// expression in a named IANA timezone. The returned `DateTime<Utc>` is
-/// always normalized to UTC for storage.
+/// expression at a fixed UTC offset (e.g. `"+07:00"`). The returned
+/// `DateTime<Utc>` is always normalized to UTC for storage.
 fn next_fire_after_in_tz(
     cron_expr: &str,
     after: DateTime<Utc>,

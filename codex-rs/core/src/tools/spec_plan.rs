@@ -8,6 +8,9 @@ use crate::tools::handlers::CreateGoalHandler;
 use crate::tools::handlers::CronCreateHandler;
 use crate::tools::handlers::CronDeleteHandler;
 use crate::tools::handlers::CronListHandler;
+use crate::tools::handlers::CronSessionCreateHandler;
+use crate::tools::handlers::CronSessionDeleteHandler;
+use crate::tools::handlers::CronSessionListHandler;
 use crate::tools::handlers::LoopListHandler;
 use crate::tools::handlers::LoopStartHandler;
 use crate::tools::handlers::LoopWakeupHandler;
@@ -49,6 +52,9 @@ use crate::tools::handlers::document_reader::APPEND_TO_SECTION_TOOL;
 use crate::tools::handlers::document_reader::PATCH_DOCUMENT_SECTION_TOOL;
 use crate::tools::handlers::document_reader::PRESENT_DOCUMENT_TOOL;
 use crate::tools::handlers::document_reader::UPDATE_DOCUMENT_SECTION_TOOL;
+use crate::tools::handlers::cron_session_spec::create_cron_session_create_tool;
+use crate::tools::handlers::cron_session_spec::create_cron_session_delete_tool;
+use crate::tools::handlers::cron_session_spec::create_cron_session_list_tool;
 use crate::tools::handlers::cron_spec::create_cron_create_tool;
 use crate::tools::handlers::cron_spec::create_cron_delete_tool;
 use crate::tools::handlers::cron_spec::create_cron_list_tool;
@@ -252,6 +258,21 @@ pub fn build_tool_registry_builder(
             /*supports_parallel_tool_calls*/ false,
         );
         builder.register_handler(Arc::new(CronDeleteHandler));
+        builder.push_spec(
+            create_cron_session_create_tool(),
+            /*supports_parallel_tool_calls*/ false,
+        );
+        builder.register_handler(Arc::new(CronSessionCreateHandler));
+        builder.push_spec(
+            create_cron_session_list_tool(),
+            /*supports_parallel_tool_calls*/ false,
+        );
+        builder.register_handler(Arc::new(CronSessionListHandler));
+        builder.push_spec(
+            create_cron_session_delete_tool(),
+            /*supports_parallel_tool_calls*/ false,
+        );
+        builder.register_handler(Arc::new(CronSessionDeleteHandler));
         builder.push_spec(
             create_monitor_start_tool(),
             /*supports_parallel_tool_calls*/ false,

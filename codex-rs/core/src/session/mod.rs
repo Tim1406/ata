@@ -695,9 +695,70 @@ impl Codex {
                 .instrument(info_span!("session_loop", thread_id = %thread_id))
                 .await;
         });
-        // Cron firing is owned by the OS (the user's system crontab) — no
-        // in-process tick loop. See `codex_scheduling::os_cron`. Loops and
-        // monitors are still in-process and resumed below.
+        // Two cron mechanisms now coexist:
+        //
+        // 1. OS cron (persistent across ata exit) — fired by the system
+        //    crontab daemon, see `codex_scheduling::os_cron`. Nothing to
+        //    spawn here for that path.
+        //
+        // 2. In-session cron (this block) — clock-aligned schedules that
+        //    live inside the running ata session and die when it closes.
+        //    The `CronRegistry` holds these jobs; this tokio task polls it
+        //    every second and injects due prompts back into the session.
+        //
+        // Spawned ONLY for root sessions. Sub-agents inherit the root's
+        // registry and submission tx, so starting a second engine on a
+        // sub-agent would double-fire every job.
+        if session.scheduling_is_root
+            && let Some(cron_registry) = session.cron_registry.clone()
+        {
+            let tx_sub_for_cron = session.submission_tx.clone();
+            let session_weak = Arc::downgrade(&session);
+            tokio::spawn(async move {
+                // 1-second tick so sub-minute cron expressions (e.g. "*/10")
+                // fire on time. The registry scan inside `take_due` is a
+                // cheap hashmap pass.
+                let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
+                tick.tick().await; // skip the immediate first tick
+                loop {
+                    tick.tick().await;
+                    let Some(session_alive) = session_weak.upgrade() else {
+                        break;
+                    };
+                    let due = cron_registry.take_due(chrono::Utc::now());
+                    let any_fired = !due.is_empty();
+                    for (id, prompt, background) in due {
+                        tracing::info!(
+                            target: "codex_scheduling::cron",
+                            task_id = %id,
+                            background = background,
+                            "cron.fired (in-session)"
+                        );
+                        let op = Op::UserInput {
+                            items: vec![UserInput::Text {
+                                text: prompt,
+                                text_elements: Vec::new(),
+                            }],
+                            environments: None,
+                            final_output_json_schema: None,
+                            responsesapi_client_metadata: None,
+                        };
+                        let prefix = if background { "cronbg" } else { "cron" };
+                        let sub = Submission {
+                            id: format!("{prefix}__{id}__{}", Uuid::now_v7()),
+                            op,
+                            trace: None,
+                        };
+                        if tx_sub_for_cron.send(sub).await.is_err() {
+                            return;
+                        }
+                    }
+                    if any_fired {
+                        session_alive.persist_scheduling_state();
+                    }
+                }
+            });
+        }
 
         // Phase 4: re-spawn per-loop tokio tasks for any loops that came
         // back from the persisted snapshot. Loops are in-process — each

@@ -99,10 +99,11 @@ pub async fn list_scheduling_tasks(sess: &Session, sub_id: String) {
 
     let scheduling_enabled = sess.cron_registry().is_some();
 
-    // Cron is OS-owned now: read entries straight from the user's crontab
-    // rather than an in-process registry. We still gate the listing on the
-    // scheduling feature flag (above) so disabled sessions see an empty panel.
-    let cron_jobs: Vec<SchedulingCronRow> = if scheduling_enabled {
+    // Two cron sources to merge:
+    //   1. OS-level entries from the user's system crontab (persistent).
+    //   2. In-session entries from the per-session CronRegistry (die with ata).
+    // Both render in the same "Cron" section of the panel.
+    let mut cron_jobs: Vec<SchedulingCronRow> = if scheduling_enabled {
         codex_scheduling::os_cron::list()
             .unwrap_or_default()
             .into_iter()
@@ -126,6 +127,20 @@ pub async fn list_scheduling_tasks(sess: &Session, sub_id: String) {
     } else {
         Vec::new()
     };
+
+    if let Some(reg) = sess.cron_registry() {
+        for job in reg.list() {
+            cron_jobs.push(SchedulingCronRow {
+                task_id: job.id.as_str().to_string(),
+                cron_expr: job.cron_expr,
+                prompt: job.prompt,
+                status: format!("{:?}", job.status),
+                fire_count: job.fire_count,
+                last_fired_at: job.last_fired_at.map(|ts| ts.to_rfc3339()),
+                next_fire_at: job.next_fire_at.map(|ts| ts.to_rfc3339()),
+            });
+        }
+    }
 
     let monitors: Vec<SchedulingMonitorRow> = sess
         .monitor_runtime()
@@ -194,10 +209,11 @@ pub async fn delete_scheduling_task(
     };
     match kind {
         SchedulingTaskKind::Cron => {
-            // Cron is OS-owned; delete the entry from the user's crontab.
-            // The feature-flag check (still using the registry handle) keeps
-            // disabled sessions from mutating crontab.
-            if sess.cron_registry().is_some() {
+            // The panel doesn't distinguish OS cron from in-session cron, so
+            // try both. Whichever owns this task_id will remove it; the other
+            // is a harmless no-op.
+            if let Some(reg) = sess.cron_registry() {
+                let _ = reg.remove(&id);
                 let _ = codex_scheduling::os_cron::delete(&id);
             }
         }

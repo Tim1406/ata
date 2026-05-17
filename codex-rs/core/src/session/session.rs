@@ -426,9 +426,14 @@ impl Session {
         let Some(path) = self.scheduling_state_path.as_ref() else {
             return;
         };
-        // Cron is persisted by the OS (system crontab), not by this sidecar.
-        // Keep the field empty so legacy readers stay tolerant.
-        let cron_jobs = Vec::new();
+        // In-session cron jobs persist through the sidecar (so resume can
+        // rehydrate). OS cron jobs live in the user's system crontab and
+        // are not tracked here.
+        let cron_jobs = self
+            .cron_registry
+            .as_ref()
+            .map(|r| r.list())
+            .unwrap_or_default();
         let monitors = self
             .monitor_runtime
             .as_ref()
@@ -1079,13 +1084,13 @@ impl Session {
                         {
                             match codex_scheduling::load_scheduling_state(path) {
                                 Ok(Some(snap)) => {
-                                    // Cron is owned by the OS now (system
-                                    // crontab). Any cron jobs in the legacy
-                                    // sidecar are ignored — they no longer
-                                    // fire from in-process state.
-                                    let cron_n = 0usize;
-                                    let _ = cron_reg;
-                                    let _ = snap.cron_jobs;
+                                    // Restore in-session cron jobs into the
+                                    // registry so the engine tick will pick
+                                    // them up. OS cron jobs are owned by the
+                                    // system crontab and are not in this
+                                    // snapshot.
+                                    let cron_n = snap.cron_jobs.len();
+                                    cron_reg.hydrate(snap.cron_jobs);
                                     // Subprocesses are dead — surface
                                     // non-terminal monitors as `Interrupted`
                                     // rather than misleadingly showing

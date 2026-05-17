@@ -60,11 +60,11 @@ USE THIS TOOL when the user wants:
 - Any persistent recurring task that should outlive a single ata session
 
 DO NOT USE THIS TOOL when:
-- The user wants something to happen only while ata is open and they're watching — use `loop_start` (session-scoped, visible in chat).
-- The user wants sub-minute granularity — OS cron can't do it. Use `loop_start` with a small interval.
-- The user wants to react to streaming output (logs, build progress) — that's the Monitor tool.
-- The user wants the agent to keep checking until a condition is met, then stop — that's the Loop tool.
-- The firing needs the current chat's context ("continue what we just discussed every hour") — the cron'd process has no conversation memory. Use `loop_start` instead.
+- The user wants the schedule to die when ata closes ("every 5 min while I'm working today") — use `cron_create_session`.
+- The firing needs the current chat's context ("every hour, summarize what we've discussed") — use `cron_create_session` (in-chat firings have conversation memory) or `loop_start`.
+- The user wants sub-minute granularity — OS cron can't do it. Use `cron_create_session` (allows sub-minute) or `loop_start`.
+- The user wants to react to streaming output (logs, build progress) — use `monitor_start`.
+- The user wants the agent to keep checking until a condition is met, then stop — use `loop_start`.
 
 Rule of thumb: clock-aligned + persistent + can-be-self-contained → cron. Anything else → loop or monitor.
 

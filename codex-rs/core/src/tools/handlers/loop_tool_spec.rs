@@ -213,13 +213,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn start_tool_requires_prompt_and_interval() {
+    fn start_tool_requires_prompt_only() {
         let ToolSpec::Function(tool) = create_loop_start_tool() else {
             panic!("loop_start should be a function tool");
         };
         let required = tool.parameters.required.as_ref().expect("required");
         assert!(required.contains(&"prompt".to_string()));
-        assert!(required.contains(&"interval_seconds".to_string()));
+        assert!(!required.contains(&"interval_seconds".to_string()));
+        assert!(!required.contains(&"initial_delay_seconds".to_string()));
     }
 
     #[test]
